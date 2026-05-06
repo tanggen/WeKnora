@@ -1,0 +1,139 @@
+services:
+  frontend:
+    image: wechatopenai/weknora-ui:${WEKNORA_VERSION:-latest}
+    build:
+      context: ./frontend
+      args:
+        - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB:-50}
+    container_name: WeKnora-frontend
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    environment:
+      - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB:-50}
+      - APP_HOST=${APP_HOST:-app}
+      - APP_PORT=${APP_BACKEND_PORT:-8080}
+      - APP_SCHEME=${APP_SCHEME:-http}
+    depends_on:
+      app:
+        condition: service_healthy
+    networks:
+      - WeKnora-network
+    restart: unless-stopped
+
+  app:
+    image: wechatopenai/weknora-app:${WEKNORA_VERSION:-latest}
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.app
+      args:
+        - APK_MIRROR_ARG=${APK_MIRROR_ARG:-}
+    container_name: WeKnora-app
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    volumes:
+      - data-files:/data/files
+      - docreader-tmp:/tmp/docreader:ro
+      - ./config/config.yaml:/app/config/config.yaml
+      - ./skills/preloaded:/app/skills/preloaded
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-}
+      - COS_SECRET_ID=${COS_SECRET_ID:-}
+      - COS_SECRET_KEY=${COS_SECRET_KEY:-}
+      - COS_REGION=${COS_REGION:-}
+      - COS_BUCKET_NAME=${COS_BUCKET_NAME:-}
+      - COS_APP_ID=${COS_APP_ID:-}
+      - COS_PATH_PREFIX=${COS_PATH_PREFIX:-}
+      - COS_ENABLE_OLD_DOMAIN=${COS_ENABLE_OLD_DOMAIN:-}
+      - GIN_MODE=${GIN_MODE:-release}
+      - DISABLE_REGISTRATION=${DISABLE_REGISTRATION:-false}
+      - DB_DRIVER=postgres
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - TZ=${TZ:-Asia/Shanghai}
+      - WEKNORA_LANGUAGE=${WEKNORA_LANGUAGE:-zh-CN}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-WeKnora}
+      - OTEL_TRACES_EXPORTER=${OTEL_TRACES_EXPORTER:-}
+      - OTEL_METRICS_EXPORTER=${OTEL_METRICS_EXPORTER:-}
+      - OTEL_LOGS_EXPORTER=${OTEL_LOGS_EXPORTER:-}
+      - OTEL_PROPAGATORS=${OTEL_PROPAGATORS:-}
+      - LANGFUSE_ENABLED=${LANGFUSE_ENABLED:-}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - RETRIEVE_DRIVER=${RETRIEVE_DRIVER:-}
+      - DOCREADER_ADDR=${DOCREADER_ADDR:-docreader:50051}
+      - DOCREADER_TRANSPORT=${DOCREADER_TRANSPORT:-grpc}
+      - STORAGE_TYPE=${STORAGE_TYPE:-}
+      - LOCAL_STORAGE_BASE_DIR=${LOCAL_STORAGE_BASE_DIR:-}
+      - AUTO_RECOVER_DIRTY=${AUTO_RECOVER_DIRTY:-true}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
+      - STREAM_MANAGER_TYPE=${STREAM_MANAGER_TYPE:-}
+      - REDIS_ADDR=${REDIS_ADDR}
+      - REDIS_USERNAME=${REDIS_USERNAME:-}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - REDIS_DB=${REDIS_DB:-}
+      - REDIS_PREFIX=${REDIS_PREFIX:-}
+      - ENABLE_GRAPH_RAG=${ENABLE_GRAPH_RAG:-}
+      - NEO4J_ENABLE=${NEO4J_ENABLE:-}
+      - TENANT_AES_KEY=${TENANT_AES_KEY}
+      - SYSTEM_AES_KEY=${SYSTEM_AES_KEY}
+      - SSRF_WHITELIST=${SSRF_WHITELIST:-}
+      - CONCURRENCY_POOL_SIZE=${CONCURRENCY_POOL_SIZE:-5}
+      - JWT_SECRET=${JWT_SECRET}
+      - CRYPTO_MASTER_KEY=${CRYPTO_MASTER_KEY:-}
+      - CRYPTO_SALT=${CRYPTO_SALT:-}
+      - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB:-50}
+      - WEKNORA_SANDBOX_MODE=${WEKNORA_SANDBOX_MODE:-docker}
+      - WEKNORA_SANDBOX_TIMEOUT=${WEKNORA_SANDBOX_TIMEOUT:-60}
+      - WEKNORA_SANDBOX_DOCKER_IMAGE=${WEKNORA_SANDBOX_DOCKER_IMAGE:-}
+      - WEKNORA_AGENT_LLM_TIMEOUT=${WEKNORA_AGENT_LLM_TIMEOUT:-}
+      - APK_MIRROR_ARG=${APK_MIRROR_ARG:-}
+    depends_on:
+      docreader:
+        condition: service_healthy
+    networks:
+      - WeKnora-network
+    restart: unless-stopped
+
+  docreader:
+    image: wechatopenai/weknora-docreader:${WEKNORA_VERSION:-latest}
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.docreader
+      args:
+        - APT_MIRROR=${APT_MIRROR:-}
+    container_name: WeKnora-docreader
+    ports:
+      - "${DOCREADER_PORT:-50051}:50051"
+    volumes:
+      - docreader-tmp:/tmp/docreader
+    environment:
+      - DOCREADER_IMAGE_OUTPUT_DIR=/tmp/docreader
+      - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB:-}
+    healthcheck:
+      test: ["CMD", "grpc_health_probe", "-addr=localhost:50051"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - WeKnora-network
+    restart: unless-stopped
+
+networks:
+  WeKnora-network:
+    driver: bridge
+
+volumes:
+  data-files:
+  docreader-tmp:
