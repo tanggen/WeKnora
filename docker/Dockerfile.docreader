@@ -63,11 +63,14 @@ RUN if [ -z "$TARGETARCH" ]; then \
         rm -f ${PROTOC_PACKAGE}; \
     fi
 
-# 复制依赖文件
+# 复制依赖文件（使用阿里云 PyPI 镜像加速，解决国内网络下载不稳定问题）
 COPY docreader/pyproject.toml ./
 ENV UV_PYTHON_PREFERENCE=only-system
-RUN pip install --upgrade pip setuptools wheel && \
-    pip install uv && \
+ENV UV_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ && \
+    pip config set global.trusted-host mirrors.aliyun.com && \
+    pip install --upgrade pip setuptools wheel --default-timeout=100 --retries 5 && \
+    pip install uv --default-timeout=100 --retries 5 && \
     python -m uv sync --no-dev
 
 # 复制源代码和生成脚本
