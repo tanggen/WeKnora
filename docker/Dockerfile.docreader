@@ -64,7 +64,8 @@ RUN if [ -z "$TARGETARCH" ]; then \
     fi
 
 # 复制依赖文件
-COPY docreader/pyproject.toml docreader/uv.lock ./
+COPY docreader/pyproject.toml ./
+ENV UV_PYTHON_PREFERENCE=only-system
 RUN pip install --upgrade pip setuptools wheel && \
     pip install uv && \
     python -m uv sync --no-dev
@@ -146,7 +147,7 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 RUN python -m playwright install webkit
 RUN python -m playwright install-deps webkit
 
-COPY docreader/pyproject.toml docreader/uv.lock ./
+COPY docreader/pyproject.toml ./
 COPY --from=builder /app/docreader docreader
 
 # 创建共享临时图片目录
