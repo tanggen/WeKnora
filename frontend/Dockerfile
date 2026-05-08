@@ -11,8 +11,9 @@ ENV VITE_IS_DOCKER=true
 COPY package*.json ./
 COPY packages/xlsx-0.20.2.tgz ./packages/xlsx-0.20.2.tgz
 
-# 安装依赖
+# 安装依赖（pnpm 10+ 需显式允许 esbuild/vue-demi 的构建脚本）
 RUN corepack enable
+RUN pnpm config set onlyBuiltDependencies '["esbuild","vue-demi","@vue-office/pptx"]'
 RUN pnpm install
 
 # 复制项目文件
@@ -40,4 +41,4 @@ ENV MAX_FILE_SIZE_MB=50
 # 暴露端口
 EXPOSE 80
 
-ENTRYPOINT ["/docker-entrypoint.sh"] 
+ENTRYPOINT ["/docker-entrypoint.sh"]
