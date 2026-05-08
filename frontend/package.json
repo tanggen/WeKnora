@@ -59,5 +59,8 @@
     "lightningcss": "none",
     "esbuild": "^0.25.0",
     "serialize-javascript": "^7.0.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild", "vue-demi", "@vue-office/pptx"]
   }
 }

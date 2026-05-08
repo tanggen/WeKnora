@@ -11,9 +11,9 @@ ENV VITE_IS_DOCKER=true
 COPY package*.json ./
 COPY packages/xlsx-0.20.2.tgz ./packages/xlsx-0.20.2.tgz
 
-# 安装依赖（pnpm 10+ 需 --allow-build 放行构建脚本）
+# 安装依赖（package.json 中 pnpm.onlyBuiltDependencies 已配置白名单）
 RUN corepack enable
-RUN pnpm install --allow-build=esbuild --allow-build=vue-demi --allow-build=@vue-office/pptx
+RUN pnpm install
 
 # 复制项目文件
 COPY . .
