@@ -1,4 +1,0 @@
-onlyBuiltDependencies:
-  - esbuild
-  - vue-demi
-  - "@vue-office/pptx"

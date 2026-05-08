@@ -6,16 +6,13 @@ WORKDIR /app
 # 设置环境变量，忽略类型检查错误
 ENV NODE_OPTIONS="--max-old-space-size=4096"
 ENV VITE_IS_DOCKER=true
-# CI 模式绕过 pnpm build scripts 审批确认
-ENV CI=true
 
 # 复制依赖文件
 COPY package*.json ./
-COPY pnpm-workspace.yaml ./
 COPY packages/xlsx-0.20.2.tgz ./packages/xlsx-0.20.2.tgz
 
-# 安装依赖
-RUN corepack enable
+# 安装依赖（pnpm 9 无构建脚本审批限制）
+RUN corepack enable && corepack prepare pnpm@9 --activate
 RUN pnpm install
 
 # 复制项目文件
