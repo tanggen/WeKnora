@@ -9,9 +9,10 @@ ENV VITE_IS_DOCKER=true
 
 # 复制依赖文件
 COPY package*.json ./
+COPY pnpm-workspace.yaml ./
 COPY packages/xlsx-0.20.2.tgz ./packages/xlsx-0.20.2.tgz
 
-# 安装依赖（package.json 中 pnpm.onlyBuiltDependencies 已配置白名单）
+# 安装依赖（pnpm-workspace.yaml 已配置 onlyBuiltDependencies 白名单）
 RUN corepack enable
 RUN pnpm install
 
