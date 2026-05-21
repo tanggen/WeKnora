@@ -21,24 +21,6 @@ services:
     restart: unless-stopped
     stop_grace_period: 1m
 
-  redis:
-    image: redis:7.0-alpine
-    container_name: WeKnora-redis
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
-    volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
-    restart: always
-    networks:
-      - WeKnora-network
-    healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-
   frontend:
     image: wechatopenai/weknora-ui:${WEKNORA_VERSION:-latest}
     build:
@@ -174,8 +156,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
       docreader:
         condition: service_healthy
     networks:
@@ -213,6 +193,5 @@ networks:
 
 volumes:
   postgres-data:
-  redis_data:
   data-files:
   docreader-tmp:
