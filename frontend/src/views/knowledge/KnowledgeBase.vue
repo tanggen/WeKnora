@@ -20,19 +20,24 @@ import {
   batchQueryKnowledge,
   getKnowledgeBaseById,
   listKnowledgeTags,
+  listKnowledgeFiles,
   updateKnowledgeTagBatch,
   createKnowledgeBaseTag,
   updateKnowledgeBaseTag,
   deleteKnowledgeBaseTag,
   uploadKnowledgeFile,
+  uploadKnowledgeImage,
   createKnowledgeFromURL,
   listKnowledgeBases,
   reparseKnowledge,
   batchDeleteKnowledge,
+  delKnowledgeDetails,
 } from "@/api/knowledge-base/index";
 import FAQEntryManager from './components/FAQEntryManager.vue';
 import DocumentListView from './components/DocumentListView.vue';
 import DocumentBatchBar from './components/DocumentBatchBar.vue';
+import ImageGridView from './components/ImageGridView.vue';
+import ImageUploadArea from './components/ImageUploadArea.vue';
 import WikiBrowser from './wiki/WikiBrowser.vue';
 import { getWikiStats } from '@/api/wiki';
 import { listMoveTargets, moveKnowledge, getKnowledgeMoveProgress } from '@/api/knowledge-base';
@@ -50,7 +55,64 @@ const uploading = ref(false);
 const kbLoading = ref(false);
 const docListLoading = ref(true);
 const isFAQ = computed(() => (kbInfo.value?.type || '') === 'faq');
+const isImage = computed(() => (kbInfo.value?.type || '') === 'image');
 const isWiki = computed(() => !!kbInfo.value?.indexing_strategy?.wiki_enabled);
+
+// Image KB state
+const imageList = ref<any[]>([]);
+const imageLoading = ref(false);
+let imagePage = 1;
+const imagePageSize = 30;
+const imageTotal = ref(0);
+const imageHasMore = computed(() => imageList.value.length < imageTotal.value);
+
+const loadImageFiles = async (kbIdValue: string, reset = false) => {
+  if (!kbIdValue) return;
+  if (reset) {
+    imagePage = 1;
+    imageList.value = [];
+    imageTotal.value = 0;
+  }
+  imageLoading.value = true;
+  try {
+    const res: any = await listKnowledgeFiles(kbIdValue, {
+      page: imagePage,
+      page_size: imagePageSize,
+      file_type: 'image',
+    });
+    const data = res?.data || {};
+    const pageData = data.data || [];
+    if (imagePage === 1) {
+      imageList.value = pageData;
+    } else {
+      imageList.value = [...imageList.value, ...pageData];
+    }
+    imageTotal.value = data.total || 0;
+  } catch (e) {
+    console.error('Failed to load image files:', e);
+  } finally {
+    imageLoading.value = false;
+  }
+};
+
+const handleImageUploaded = (uploadedKbId: string) => {
+  if (uploadedKbId === kbId.value) {
+    imagePage = 1;
+    loadImageFiles(uploadedKbId, true);
+  }
+};
+
+const handleImageDelete = (id: string) => {
+  imageList.value = imageList.value.filter((item: any) => item.id !== id);
+  imageTotal.value = Math.max(0, imageTotal.value - 1);
+  loadImageFiles(kbId.value, true);
+};
+
+const handleImageLoadMore = () => {
+  if (!imageHasMore.value || imageLoading.value) return;
+  imagePage++;
+  loadImageFiles(kbId.value);
+};
 const validTabs = ['documents', 'wiki', 'graph'] as const
 type KbTab = typeof validTabs[number]
 const initTab = validTabs.includes(route.query.tab as any) ? (route.query.tab as KbTab) : 'documents'
@@ -131,7 +193,7 @@ onUnmounted(() => {
   clearWikiStatusProbes()
 })
 const missingStorageEngine = computed(() => {
-  if (!kbInfo.value || isFAQ.value) return false
+  if (!kbInfo.value || isFAQ.value || isImage.value) return false
   const spc = kbInfo.value.storage_provider_config
   return !spc || !spc.provider
 })
@@ -655,7 +717,9 @@ const loadKnowledgeBaseInfo = async (targetKbId: string) => {
     selectedTagId.value = '';
     // 重置store中的标签选择状态，避免上传文档时自动带上之前选择的标签
     uiStore.setSelectedTagId('');
-    if (!isFAQ.value) {
+    if (isImage.value) {
+      loadImageFiles(targetKbId, true);
+    } else if (!isFAQ.value) {
       docListLoading.value = true;
       loadKnowledgeFiles(targetKbId);
     } else {
@@ -767,14 +831,18 @@ watch(selectedFileType, (newVal, oldVal) => {
 const handleFileUploaded = (event: CustomEvent) => {
   const uploadedKbId = event.detail.kbId;
   console.log('接收到文件上传事件，上传的知识库ID:', uploadedKbId, '当前知识库ID:', kbId.value);
-  if (uploadedKbId && uploadedKbId === kbId.value && !isFAQ.value) {
-    console.log('匹配当前知识库，开始刷新文件列表');
-    // 如果上传的文件属于当前知识库，使用 loadKnowledgeFiles 刷新文件列表
-    page = 1; // Reset page counter when reloading files after upload
-    loadKnowledgeFiles(uploadedKbId);
-    loadTags(uploadedKbId);
-    // 启动几次探测，尽快让面包屑的"索引中"亮起。
-    scheduleWikiStatusProbes();
+  if (uploadedKbId && uploadedKbId === kbId.value) {
+    if (isImage.value) {
+      handleImageUploaded(uploadedKbId);
+    } else if (!isFAQ.value) {
+      console.log('匹配当前知识库，开始刷新文件列表');
+      // 如果上传的文件属于当前知识库，使用 loadKnowledgeFiles 刷新文件列表
+      page = 1; // Reset page counter when reloading files after upload
+      loadKnowledgeFiles(uploadedKbId);
+      loadTags(uploadedKbId);
+      // 启动几次探测，尽快让面包屑的"索引中"亮起。
+      scheduleWikiStatusProbes();
+    }
   }
 };
 
@@ -1761,7 +1829,117 @@ async function createNewSession(value: string): Promise<void> {
 </script>
 
 <template>
-  <template v-if="!isFAQ">
+  <!-- Image KB -->
+  <template v-if="isImage">
+    <div class="knowledge-layout">
+      <div class="document-header">
+        <div class="document-header-title">
+          <div class="document-title-row">
+            <h2 class="document-breadcrumb">
+              <button type="button" class="breadcrumb-link" @click="handleNavigateToKbList">
+                {{ $t('menu.knowledgeBase') }}
+              </button>
+              <t-icon name="chevron-right" class="breadcrumb-separator" />
+              <t-dropdown
+                v-if="knowledgeDropdownOptions.length"
+                :options="knowledgeDropdownOptions"
+                trigger="click"
+                placement="bottom-left"
+                @click="handleKnowledgeDropdownSelect"
+              >
+                <button
+                  type="button"
+                  class="breadcrumb-link dropdown"
+                  :disabled="!kbId"
+                  @click.stop="handleNavigateToCurrentKB"
+                >
+                  <template v-if="!kbInfo">
+                    <t-skeleton animation="gradient" :row-col="[{ width: '120px', height: '20px' }]" />
+                  </template>
+                  <template v-else>
+                    <span>{{ kbInfo.name }}</span>
+                    <t-icon name="chevron-down" />
+                  </template>
+                </button>
+              </t-dropdown>
+              <button
+                v-else
+                type="button"
+                class="breadcrumb-link"
+                :disabled="!kbId"
+                @click="handleNavigateToCurrentKB"
+              >
+                <template v-if="!kbInfo">
+                  <t-skeleton animation="gradient" :row-col="[{ width: '120px', height: '20px' }]" />
+                </template>
+                <template v-else>
+                  {{ kbInfo.name }}
+                </template>
+              </button>
+              <t-icon name="chevron-right" class="breadcrumb-separator" />
+              <span class="breadcrumb-current">{{ $t('knowledgeEditor.basic.typeImage') }}</span>
+            </h2>
+            <div v-if="kbInfo && !authStore.isLiteMode" class="kb-access-meta">
+              <t-tooltip :content="accessPermissionSummary" placement="top">
+                <span class="kb-access-meta-inner">
+                  <t-tag size="small" :theme="isOwner ? 'success' : (effectiveKBPermission === 'admin' ? 'primary' : effectiveKBPermission === 'editor' ? 'warning' : 'default')" class="kb-access-role-tag">
+                    {{ accessRoleLabel }}
+                  </t-tag>
+                  <template v-if="currentSharedKb">
+                    <span class="kb-access-meta-sep">·</span>
+                    <span class="kb-access-meta-text">
+                      {{ $t('knowledgeBase.accessInfo.fromOrg') }}「{{ currentSharedKb.org_name }}」
+                      {{ $t('knowledgeBase.accessInfo.sharedAt') }} {{ formatStringDate(new Date(currentSharedKb.shared_at)) }}
+                    </span>
+                  </template>
+                  <template v-else-if="effectiveKBPermission">
+                    <span class="kb-access-meta-sep">·</span>
+                    <span class="kb-access-meta-text">{{ $t('knowledgeList.detail.sourceTypeAgent') }}</span>
+                  </template>
+                  <template v-else-if="kbLastUpdated">
+                    <span class="kb-access-meta-sep">·</span>
+                    <span class="kb-access-meta-text">{{ $t('knowledgeBase.accessInfo.lastUpdated') }} {{ kbLastUpdated }}</span>
+                  </template>
+                </span>
+              </t-tooltip>
+            </div>
+            <t-tooltip v-if="canManage" :content="$t('knowledgeBase.settings')" placement="top">
+              <button
+                type="button"
+                class="kb-settings-button"
+                :disabled="!kbId"
+                @click="handleOpenKBSettings"
+              >
+                <t-icon name="setting" size="16px" />
+              </button>
+            </t-tooltip>
+          </div>
+          <p class="document-subtitle">{{ $t('knowledgeBase.image.noImagesDesc') }}</p>
+        </div>
+      </div>
+
+      <div class="image-main-area">
+        <ImageUploadArea
+          v-if="canEdit"
+          :kb-id="kbId"
+          :tag-id="selectedTagId || undefined"
+          @uploaded="handleImageUploaded"
+        />
+        <ImageGridView
+          :images="imageList"
+          :loading="imageLoading"
+          :can-edit="canEdit"
+          :kb-id="kbId"
+          @delete="handleImageDelete"
+          @load-more="handleImageLoadMore"
+          @refresh="loadImageFiles(kbId, true)"
+        />
+      </div>
+
+      <DocContent :visible="isCardDetails" :details="details" @closeDoc="closeDoc" @getDoc="getDoc"></DocContent>
+    </div>
+  </template>
+  <template v-else-if="!isFAQ">
     <div class="knowledge-layout">
       <div class="document-header">
         <div class="document-header-title">
@@ -4200,5 +4378,14 @@ async function createNewSession(value: string): Promise<void> {
 
 .del-card {
   vertical-align: middle;
+}
+
+// Image KB main area
+.image-main-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
 </style>

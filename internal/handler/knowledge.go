@@ -27,6 +27,8 @@ import (
 	"github.com/hibiken/asynq"
 )
 
+const maxImageSizeBytes = 20 * 1024 * 1024 // 20MB
+
 // KnowledgeHandler processes HTTP requests related to knowledge resources
 type KnowledgeHandler struct {
 	kgService         interfaces.KnowledgeService
@@ -330,6 +332,88 @@ func (h *KnowledgeHandler) CreateKnowledgeFromFile(c *gin.Context) {
 		secutils.SanitizeForLog(knowledge.Title),
 	)
 	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    knowledge,
+	})
+}
+
+// CreateKnowledgeFromImage godoc
+// @Summary      上传图片到图片库
+// @Description  上传单张图片到图片类型知识库
+// @Tags         知识管理
+// @Accept       multipart/form-data
+// @Produce      json
+// @Param        id       path     string  true  "知识库ID"
+// @Param        file     formData file    true  "图片文件 (jpg/png/gif/webp/bmp, ≤20MB)"
+// @Param        tag_id   formData string  false "分类ID"
+// @Param        channel  formData string  false "来源渠道 (默认 web)"
+// @Success      201      {object} map[string]interface{}  "创建的图片知识"
+// @Failure      400      {object} errors.AppError         "文件类型不支持/文件过大/知识库类型不匹配"
+// @Failure      409      {object} map[string]interface{}  "图片重复"
+// @Security     Bearer
+// @Security     ApiKeyAuth
+// @Router       /knowledge-bases/{id}/knowledge/image [post]
+func (h *KnowledgeHandler) CreateKnowledgeFromImage(c *gin.Context) {
+	ctx := c.Request.Context()
+	logger.Info(ctx, "Start creating knowledge from image")
+
+	// Validate access to the knowledge base
+	_, kbID, effectiveTenantID, permission, err := h.validateKnowledgeBaseAccess(c)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+	ctx = context.WithValue(ctx, types.TenantIDContextKey, effectiveTenantID)
+
+	// Check write permission
+	if permission != types.OrgRoleAdmin && permission != types.OrgRoleEditor {
+		c.Error(errors.NewForbiddenError("No permission to create knowledge"))
+		return
+	}
+
+	// Get the uploaded file
+	file, err := c.FormFile("file")
+	if err != nil {
+		logger.Error(ctx, "Image upload failed", err)
+		c.Error(errors.NewBadRequestError("图片上传失败").WithDetails(err.Error()))
+		return
+	}
+
+	// Validate file size (≤20MB)
+	if file.Size > maxImageSizeBytes {
+		logger.Error(ctx, "Image file size too large")
+		c.Error(errors.NewBadRequestError("文件大小不能超过20MB"))
+		return
+	}
+
+	logger.Infof(ctx, "Image upload successful, filename: %s, size: %.2f KB",
+		secutils.SanitizeForLog(file.Filename), float64(file.Size)/1024)
+
+	// Get optional tag_id and channel
+	tagID := c.PostForm("tag_id")
+	if tagID == "__untagged__" || tagID == "" {
+		tagID = ""
+	}
+	channel := c.PostForm("channel")
+
+	// Create knowledge from image
+	knowledge, err := h.kgService.CreateKnowledgeFromImage(ctx, kbID, file, tagID, channel)
+	if err != nil {
+		if h.handleDuplicateKnowledgeError(c, err, knowledge, "image") {
+			return
+		}
+		if appErr, ok := errors.IsAppError(err); ok {
+			c.Error(appErr)
+			return
+		}
+		logger.ErrorWithFields(ctx, err, nil)
+		c.Error(errors.NewInternalServerError(err.Error()))
+		return
+	}
+
+	logger.Infof(ctx, "Image knowledge created successfully, ID: %s, title: %s",
+		secutils.SanitizeForLog(knowledge.ID), secutils.SanitizeForLog(knowledge.Title))
+	c.JSON(http.StatusCreated, gin.H{
 		"success": true,
 		"data":    knowledge,
 	})

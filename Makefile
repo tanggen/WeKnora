@@ -113,11 +113,11 @@ docker-build-app:
 
 # Build docreader Docker image
 docker-build-docreader:
-	docker build --platform $(PLATFORM) -f docker/Dockerfile.docreader -t wechatopenai/weknora-docreader:latest .
+	DOCKER_BUILDKIT=1 docker build --platform $(PLATFORM) -f docker/Dockerfile.docreader -t wechatopenai/weknora-docreader:latest .
 
 # Build frontend Docker image
 docker-build-frontend:
-	docker build --platform $(PLATFORM) -f frontend/Dockerfile -t wechatopenai/weknora-ui:latest frontend/
+	DOCKER_BUILDKIT=1 docker build --platform $(PLATFORM) -f frontend/Dockerfile -t wechatopenai/weknora-ui:latest frontend/
 
 # Build all Docker images
 docker-build-all: docker-build-app docker-build-docreader docker-build-frontend

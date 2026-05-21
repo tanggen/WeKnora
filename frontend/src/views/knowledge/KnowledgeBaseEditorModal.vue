@@ -49,12 +49,19 @@
                         >
                           <t-radio-button value="document">{{ $t('knowledgeEditor.basic.typeDocument') }}</t-radio-button>
                           <t-radio-button value="faq">{{ $t('knowledgeEditor.basic.typeFAQ') }}</t-radio-button>
+                          <t-radio-button value="image">{{ $t('knowledgeEditor.basic.typeImage') }}</t-radio-button>
                         </t-radio-group>
-                        <p class="form-tip">{{ $t('knowledgeEditor.basic.typeDescription') }}</p>
+                        <p class="form-tip">
+                          <template v-if="formData?.type === 'image'">{{ $t('knowledgeEditor.basic.typeImageDescription') }}</template>
+                          <template v-else>{{ $t('knowledgeEditor.basic.typeDescription') }}</template>
+                        </p>
+                        <p v-if="formData?.type === 'image'" class="form-tip" style="color: var(--td-brand-color); margin-top: 8px;">
+                          {{ $t('knowledgeEditor.basic.imageUploadHint') }}
+                        </p>
                       </div>
 
                       <!-- 索引策略 (紧跟类型选择) -->
-                      <div v-if="!isFAQ" class="form-item">
+                      <div v-if="!isFAQ && !isImage" class="form-item">
                         <label class="form-label required">{{ $t('knowledgeEditor.indexing.title') }}</label>
                         <p class="form-tip">{{ $t('knowledgeEditor.indexing.description') }}</p>
                         <div class="indexing-checks" :class="{ 'is-locked': isIndexingLocked }">
@@ -94,7 +101,7 @@
                       </div>
 
                       <!-- Wiki 提取粒度 (仅当 Wiki 启用时显示) -->
-                      <div v-if="!isFAQ && formData.indexingStrategy.wikiEnabled" class="form-item">
+                      <div v-if="!isFAQ && !isImage && formData.indexingStrategy.wikiEnabled" class="form-item">
                         <label class="form-label">{{ $t('knowledgeEditor.wiki.extractionGranularityLabel') }}</label>
                         <p class="form-tip">{{ $t('knowledgeEditor.wiki.extractionGranularityTip') }}</p>
                         <t-radio-group
@@ -188,7 +195,7 @@
                 </div>
 
                 <!-- 解析引擎 -->
-                <div v-if="!isFAQ && formData" v-show="currentSection === 'parser'" class="section">
+                <div v-if="!isFAQ && !isImage && formData" v-show="currentSection === 'parser'" class="section">
                   <KBParserSettings
                     :parser-engine-rules="formData.chunkingConfig.parserEngineRules"
                     @update:parser-engine-rules="handleParserEngineRulesUpdate"
@@ -205,7 +212,7 @@
                 </div>
 
                 <!-- 分块设置 -->
-                <div v-if="!isFAQ" v-show="currentSection === 'chunking'" class="section">
+                <div v-if="!isFAQ && !isImage" v-show="currentSection === 'chunking'" class="section">
                   <KBChunkingSettings
                     v-if="formData"
                     :config="formData.chunkingConfig"
@@ -218,7 +225,10 @@
                   <div v-if="formData" class="kb-multimodal-settings">
                     <div class="section-header">
                       <h2>{{ $t('knowledgeEditor.multimodal.title') }}</h2>
-                      <p class="section-description">{{ $t('knowledgeEditor.multimodal.description') }}</p>
+                      <p class="section-description">
+                        <template v-if="isImage">{{ $t('knowledgeEditor.basic.imageVlmRequired') }}</template>
+                        <template v-else>{{ $t('knowledgeEditor.multimodal.description') }}</template>
+                      </p>
                     </div>
 
                     <div class="settings-group">
@@ -259,7 +269,7 @@
                 </div>
 
                 <!-- 音频处理（ASR）设置 -->
-                <div v-if="!isFAQ" v-show="currentSection === 'asr'" class="section">
+                <div v-if="!isFAQ && !isImage" v-show="currentSection === 'asr'" class="section">
                   <div v-if="formData" class="kb-multimodal-settings">
                     <div class="section-header">
                       <h2>{{ $t('knowledgeEditor.asr.title') }}</h2>
@@ -303,7 +313,7 @@
                 </div>
 
                 <!-- 知识图谱 -->
-                <div v-if="!isFAQ" v-show="currentSection === 'graph'" class="section">
+                <div v-if="!isFAQ && !isImage" v-show="currentSection === 'graph'" class="section">
                   <GraphSettings
                     v-if="formData"
                     :graph-extract="formData.nodeExtractConfig"
@@ -314,7 +324,7 @@
                 </div>
 
                 <!-- 高级设置 -->
-                <div v-if="!isFAQ" v-show="currentSection === 'advanced'" class="section">
+                <div v-if="!isFAQ && !isImage" v-show="currentSection === 'advanced'" class="section">
                   <KBAdvancedSettings
                     ref="advancedSettingsRef"
                     v-if="formData"
@@ -381,7 +391,7 @@ const props = defineProps<{
   visible: boolean
   mode: 'create' | 'edit'
   kbId?: string
-  initialType?: 'document' | 'faq'
+  initialType?: 'document' | 'faq' | 'image'
 }>()
 
 // Emits
@@ -423,6 +433,11 @@ const navItems = computed(() => {
   ]
   if (formData.value?.type === 'faq') {
     items.push({ key: 'faq', icon: 'help-circle', label: t('knowledgeEditor.sidebar.faq') })
+  } else if (formData.value?.type === 'image') {
+    items.push(
+      { key: 'multimodal', icon: 'image', label: t('knowledgeEditor.sidebar.multimodal') },
+      { key: 'storage', icon: 'cloud', label: t('knowledgeEditor.sidebar.storage') }
+    )
   } else {
     items.push(
       { key: 'parser', icon: 'file-search', label: t('settings.parserEngine') },
@@ -450,6 +465,7 @@ const advancedSettingsRef = ref<InstanceType<typeof KBAdvancedSettings>>()
 // 表单数据
 const formData = ref<any>(null)
 const isFAQ = computed(() => formData.value?.type === 'faq')
+const isImage = computed(() => formData.value?.type === 'image')
 
 watch(
   () => formData.value?.type,
@@ -462,14 +478,29 @@ watch(
       if (!['basic', 'models', 'faq'].includes(currentSection.value)) {
         currentSection.value = 'faq'
       }
+    } else if (newType === 'image') {
+      // Force VLM enabled for image KBs
+      formData.value.multimodalConfig.enabled = true
+      // Force vector indexing only
+      formData.value.indexingStrategy = {
+        vectorEnabled: true,
+        keywordEnabled: false,
+        wikiEnabled: false,
+        graphEnabled: false,
+      }
+      if (!['basic', 'models', 'multimodal', 'storage'].includes(currentSection.value)) {
+        currentSection.value = 'multimodal'
+      }
     } else if (oldType === 'faq' && currentSection.value === 'faq') {
+      currentSection.value = 'basic'
+    } else if (oldType === 'image' && !['basic', 'models', 'multimodal', 'storage'].includes(currentSection.value)) {
       currentSection.value = 'basic'
     }
   }
 )
 
 // 初始化表单数据
-const initFormData = (type: 'document' | 'faq' = 'document') => {
+const initFormData = (type: 'document' | 'faq' | 'image' = 'document') => {
   return {
     type,
     name: '',
@@ -566,7 +597,7 @@ const loadKBData = async () => {
     hasFiles.value = (filesResult as any)?.total > 0
     
     // 设置表单数据
-    const kbType = (kb.type as 'document' | 'faq') || 'document'
+    const kbType = (kb.type as 'document' | 'faq' | 'image') || 'document'
     formData.value = {
       type: kbType,
       name: kb.name || '',
@@ -785,7 +816,7 @@ const validateForm = (): boolean => {
   }
 
   // 验证索引策略 — 文档类型至少需要开启一种
-  if (formData.value.type !== 'faq') {
+  if (formData.value.type !== 'faq' && formData.value.type !== 'image') {
     const s = formData.value.indexingStrategy
     if (s && !s.vectorEnabled && !s.keywordEnabled && !s.wikiEnabled && !s.graphEnabled) {
       MessagePlugin.warning(t('knowledgeEditor.indexing.atLeastOne'))
@@ -795,21 +826,32 @@ const validateForm = (): boolean => {
   }
 
   // 验证模型配置 - embedding 模型仅在检索索引启用时必须
-  const needsEmbedding = formData.value.indexingStrategy?.vectorEnabled || formData.value.indexingStrategy?.keywordEnabled
+  const needsEmbedding = formData.value.type === 'image' ||
+    formData.value.indexingStrategy?.vectorEnabled || formData.value.indexingStrategy?.keywordEnabled
   if (needsEmbedding && !formData.value.modelConfig.embeddingModelId) {
-    MessagePlugin.warning(t('knowledgeEditor.indexing.embeddingRequired'))
+    if (formData.value.type === 'image') {
+      MessagePlugin.warning(t('knowledgeEditor.basic.imageEmbeddingRequired'))
+    } else {
+      MessagePlugin.warning(t('knowledgeEditor.indexing.embeddingRequired'))
+    }
     currentSection.value = 'models'
     return false
   }
 
-  if (!formData.value.modelConfig.llmModelId) {
+  if (formData.value.type !== 'image' && !formData.value.modelConfig.llmModelId) {
     MessagePlugin.warning(t('knowledgeEditor.messages.summaryRequired'))
     currentSection.value = 'models'
     return false
   }
 
-  // 验证多模态配置（如果启用）
-  if (formData.value.multimodalConfig.enabled && !formData.value.multimodalConfig.vllmModelId) {
+  // 验证多模态配置（图片库必选VLM）
+  if (formData.value.type === 'image') {
+    if (!formData.value.multimodalConfig.vllmModelId) {
+      MessagePlugin.warning(t('knowledgeEditor.basic.imageVlmNotEnabled'))
+      currentSection.value = 'multimodal'
+      return false
+    }
+  } else if (formData.value.multimodalConfig.enabled && !formData.value.multimodalConfig.vllmModelId) {
     MessagePlugin.warning(t('knowledgeEditor.messages.multimodalInvalid'))
     currentSection.value = 'multimodal'
     return false
@@ -904,11 +946,20 @@ const buildSubmitData = () => {
 
   // Send indexing strategy
   if (formData.value.type !== 'faq') {
-    data.indexing_strategy = {
-      vector_enabled: formData.value.indexingStrategy?.vectorEnabled ?? true,
-      keyword_enabled: formData.value.indexingStrategy?.keywordEnabled ?? true,
-      wiki_enabled: formData.value.indexingStrategy?.wikiEnabled ?? false,
-      graph_enabled: formData.value.indexingStrategy?.graphEnabled ?? false,
+    if (formData.value.type === 'image') {
+      data.indexing_strategy = {
+        vector_enabled: true,
+        keyword_enabled: false,
+        wiki_enabled: false,
+        graph_enabled: false,
+      }
+    } else {
+      data.indexing_strategy = {
+        vector_enabled: formData.value.indexingStrategy?.vectorEnabled ?? true,
+        keyword_enabled: formData.value.indexingStrategy?.keywordEnabled ?? true,
+        wiki_enabled: formData.value.indexingStrategy?.wikiEnabled ?? false,
+        graph_enabled: formData.value.indexingStrategy?.graphEnabled ?? false,
+      }
     }
   }
 
@@ -989,7 +1040,7 @@ const doSubmit = async () => {
           question_index_mode: formData.value.faqConfig.questionIndexMode || 'separate'
         }
       }
-      if (formData.value.wikiConfig && formData.value.type !== 'faq') {
+      if (formData.value.wikiConfig && formData.value.type !== 'faq' && formData.value.type !== 'image') {
         updateConfig.wiki_config = {
           synthesis_model_id: formData.value.modelConfig?.wikiSynthesisModelId || '',
           max_pages_per_ingest: formData.value.wikiConfig.maxPagesPerIngest || 0,
@@ -997,11 +1048,20 @@ const doSubmit = async () => {
         }
       }
       if (formData.value.type !== 'faq') {
-        updateConfig.indexing_strategy = {
-          vector_enabled: formData.value.indexingStrategy?.vectorEnabled ?? true,
-          keyword_enabled: formData.value.indexingStrategy?.keywordEnabled ?? true,
-          wiki_enabled: formData.value.indexingStrategy?.wikiEnabled ?? false,
-          graph_enabled: formData.value.indexingStrategy?.graphEnabled ?? false,
+        if (formData.value.type === 'image') {
+          updateConfig.indexing_strategy = {
+            vector_enabled: true,
+            keyword_enabled: false,
+            wiki_enabled: false,
+            graph_enabled: false,
+          }
+        } else {
+          updateConfig.indexing_strategy = {
+            vector_enabled: formData.value.indexingStrategy?.vectorEnabled ?? true,
+            keyword_enabled: formData.value.indexingStrategy?.keywordEnabled ?? true,
+            wiki_enabled: formData.value.indexingStrategy?.wikiEnabled ?? false,
+            graph_enabled: formData.value.indexingStrategy?.graphEnabled ?? false,
+          }
         }
       }
       await updateKnowledgeBase(props.kbId, {

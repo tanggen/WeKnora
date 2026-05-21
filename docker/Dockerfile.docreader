@@ -12,7 +12,9 @@ RUN if [ -n "$APT_MIRROR" ]; then \
 WORKDIR /app
 
 # 安装构建依赖
-RUN apt-get update && apt-get install -y \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y \
     gcc \
     python3-dev \
     libjpeg-dev \
@@ -23,8 +25,7 @@ RUN apt-get update && apt-get install -y \
     wget \
     antiword \
     curl \
-    unzip \
-    && rm -rf /var/lib/apt/lists/*
+    unzip
 
 # 检查是否存在本地protoc安装包，如果存在则离线安装，否则在线安装
 ARG TARGETARCH
@@ -94,7 +95,10 @@ RUN if [ -n "$APT_MIRROR" ]; then \
 WORKDIR /app
 
 # 安装运行时依赖（已移除 OCR/PaddleOCR 相关依赖）
-RUN apt-get update && apt-get install -y \
+# --mount=type=cache 缓存 apt 下载包，中断后重启构建无需重新下载
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y \
     libjpeg62-turbo \
     wget \
     gnupg \
@@ -111,8 +115,7 @@ RUN apt-get update && apt-get install -y \
     libglu1-mesa \
     libsm6 \
     libreoffice \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+    curl
 
 # 安装 grpc_health_probe
 ARG TARGETARCH

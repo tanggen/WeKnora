@@ -146,6 +146,9 @@ func RunAsynqServer(params AsynqTaskParams) *asynq.ServeMux {
 	// Register image multimodal handler
 	mux.HandleFunc(types.TypeImageMultimodal, params.ImageMultimodal.Handle)
 
+	// Register image knowledge processing handler
+	mux.HandleFunc(types.TypeImageProcess, params.KnowledgeService.ProcessImageKnowledge)
+
 	// Register knowledge post process handler
 	mux.HandleFunc(types.TypeKnowledgePostProcess, params.KnowledgePostProcess.Handle)
 

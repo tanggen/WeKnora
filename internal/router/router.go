@@ -205,6 +205,8 @@ func RegisterKnowledgeRoutes(r *gin.RouterGroup, handler *handler.KnowledgeHandl
 	{
 		// 从文件创建知识
 		kb.POST("/file", handler.CreateKnowledgeFromFile)
+		// 从图片创建知识（图片库专用）
+		kb.POST("/image", handler.CreateKnowledgeFromImage)
 		// 从URL创建知识（支持网页URL和文件URL，传 file_name/file_type 或 URL 含已知扩展名时自动切换为文件下载模式）
 		kb.POST("/url", handler.CreateKnowledgeFromURL)
 		// 手工 Markdown 录入

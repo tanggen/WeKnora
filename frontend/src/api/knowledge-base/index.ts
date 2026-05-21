@@ -11,7 +11,7 @@ export function listKnowledgeBases(params?: { agent_id?: string }) {
 export function createKnowledgeBase(data: {
   name: string;
   description?: string;
-  type?: 'document' | 'faq';
+  type?: 'document' | 'faq' | 'image';
   chunking_config?: any;
   embedding_model_id?: string;
   summary_model_id?: string;
@@ -117,6 +117,16 @@ export function uploadKnowledgeFile(kbId: string, data: { file: File; tag_id?: s
     if (data[key] !== undefined) formData.append(key, data[key]);
   });
   return postUpload(`/api/v1/knowledge-bases/${kbId}/knowledge/file`, formData, onProgress);
+}
+
+// 上传图片到图片库
+// data.tag_id: 可选，指定图片所属的分类ID
+export function uploadKnowledgeImage(kbId: string, data: { file: File; tag_id?: string; [key: string]: any } = { file: new File([], '') }, onProgress?: (progressEvent: any) => void) {
+  const formData = new FormData();
+  Object.keys(data).forEach(key => {
+    if (data[key] !== undefined) formData.append(key, data[key]);
+  });
+  return postUpload(`/api/v1/knowledge-bases/${kbId}/knowledge/image`, formData, onProgress);
 }
 
 // 从URL创建知识

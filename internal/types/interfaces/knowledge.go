@@ -23,6 +23,15 @@ type KnowledgeService interface {
 		tagID string,
 		channel string,
 	) (*types.Knowledge, error)
+	// CreateKnowledgeFromImage creates knowledge from an image file for image-type knowledge bases.
+	// channel identifies the ingestion channel; empty defaults to "web".
+	CreateKnowledgeFromImage(
+		ctx context.Context,
+		kbID string,
+		file *multipart.FileHeader,
+		tagID string,
+		channel string,
+	) (*types.Knowledge, error)
 	// CreateKnowledgeFromURL creates knowledge from a URL.
 	// When fileName or fileType is provided (or the URL path has a known file extension),
 	// the URL is treated as a direct file download instead of a web page crawl.
@@ -140,6 +149,8 @@ type KnowledgeService interface {
 	ProcessManualUpdate(ctx context.Context, t *asynq.Task) error
 	// ProcessDocument handles Asynq document processing tasks
 	ProcessDocument(ctx context.Context, t *asynq.Task) error
+	// ProcessImageKnowledge handles Asynq image knowledge processing tasks (OCR + Caption + Embedding)
+	ProcessImageKnowledge(ctx context.Context, t *asynq.Task) error
 	// ProcessFAQImport handles Asynq FAQ import tasks
 	ProcessFAQImport(ctx context.Context, t *asynq.Task) error
 	// ProcessQuestionGeneration handles Asynq question generation tasks

@@ -131,6 +131,17 @@ func (h *KnowledgeBaseHandler) CreateKnowledgeBase(c *gin.Context) {
 		c.Error(err)
 		return
 	}
+	// Validate image KB requirements: VLM must be enabled with a model
+	if req.Type == types.KnowledgeBaseTypeImage {
+		if !req.VLMConfig.IsEnabled() || req.VLMConfig.ModelID == "" {
+			c.Error(apperrors.NewBadRequestError("图片库必须启用 VLM 模型（请在 VLM 配置中选择模型并启用）"))
+			return
+		}
+		if req.EmbeddingModelID == "" {
+			c.Error(apperrors.NewBadRequestError("图片库必须绑定 Embedding 模型"))
+			return
+		}
+	}
 	provider := strings.ToLower(strings.TrimSpace(req.GetStorageProvider()))
 	if provider != "" && !isStorageProviderAllowed(provider) {
 		c.Error(apperrors.NewBadRequestError("Storage provider is not allowed by STORAGE_ALLOW_LIST"))

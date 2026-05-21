@@ -232,6 +232,11 @@ func (s *knowledgeService) CreateKnowledgeFromFile(ctx context.Context,
 		return nil, werrors.NewBadRequestError("FAQ 知识库不支持文件上传，请使用 FAQ 导入功能")
 	}
 
+	// Image knowledge bases should not accept regular file uploads — use the image upload API instead
+	if kb.Type == types.KnowledgeBaseTypeImage {
+		return nil, werrors.NewBadRequestError("图片库不支持文档上传，请使用图片上传功能")
+	}
+
 	if err := checkStorageEngineConfigured(ctx, kb); err != nil {
 		return nil, err
 	}

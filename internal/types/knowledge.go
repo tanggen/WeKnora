@@ -13,7 +13,9 @@ const (
 	// KnowledgeTypeManual represents the manual knowledge type
 	KnowledgeTypeManual = "manual"
 	// KnowledgeTypeFAQ represents the FAQ knowledge type
-	KnowledgeTypeFAQ = "faq"
+	KnowledgeTypeFAQ   = "faq"
+	// KnowledgeTypeImage represents the image knowledge type
+	KnowledgeTypeImage = "image"
 )
 
 // Channel constants identify through which channel a knowledge entry was ingested.

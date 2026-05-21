@@ -161,7 +161,7 @@ build_docreader_image() {
     
     cd "$PROJECT_ROOT"
     
-    docker build \
+    DOCKER_BUILDKIT=1 docker build \
         --platform $PLATFORM \
         --build-arg PLATFORM=$PLATFORM \
         --build-arg TARGETARCH=$TARGETARCH \

@@ -87,6 +87,13 @@ func (s *knowledgeBaseService) CreateKnowledgeBase(ctx context.Context,
 	kb.UpdatedAt = time.Now()
 	kb.EnsureDefaults()
 
+	// Image KB: enforce vector-only indexing (no keyword/wiki/graph)
+	if kb.Type == types.KnowledgeBaseTypeImage {
+		kb.IndexingStrategy = types.IndexingStrategy{
+			VectorEnabled: true,
+		}
+	}
+
 	logger.Infof(ctx, "Creating knowledge base, ID: %s, tenant ID: %d, name: %s", kb.ID, kb.TenantID, kb.Name)
 
 	if err := s.repo.CreateKnowledgeBase(ctx, kb); err != nil {
@@ -184,7 +191,7 @@ func (s *knowledgeBaseService) ListKnowledgeBases(ctx context.Context) ([]*types
 
 		// Get knowledge count
 		switch kb.Type {
-		case types.KnowledgeBaseTypeDocument:
+		case types.KnowledgeBaseTypeDocument, types.KnowledgeBaseTypeImage:
 			knowledgeCount, err := s.kgRepo.CountKnowledgeByKnowledgeBaseID(ctx, tenantID, kb.ID)
 			if err != nil {
 				logger.Warnf(ctx, "Failed to get knowledge count for knowledge base %s: %v", kb.ID, err)
@@ -230,7 +237,7 @@ func (s *knowledgeBaseService) ListKnowledgeBasesByTenantID(ctx context.Context,
 	for _, kb := range kbs {
 		kb.EnsureDefaults()
 		switch kb.Type {
-		case types.KnowledgeBaseTypeDocument:
+		case types.KnowledgeBaseTypeDocument, types.KnowledgeBaseTypeImage:
 			if cnt, err := s.kgRepo.CountKnowledgeByKnowledgeBaseID(ctx, tenantID, kb.ID); err == nil {
 				kb.KnowledgeCount = cnt
 			}
@@ -255,7 +262,7 @@ func (s *knowledgeBaseService) FillKnowledgeBaseCounts(ctx context.Context, kb *
 	tenantID := kb.TenantID
 	kb.EnsureDefaults()
 	switch kb.Type {
-	case types.KnowledgeBaseTypeDocument:
+	case types.KnowledgeBaseTypeDocument, types.KnowledgeBaseTypeImage:
 		if cnt, err := s.kgRepo.CountKnowledgeByKnowledgeBaseID(ctx, tenantID, kb.ID); err == nil {
 			kb.KnowledgeCount = cnt
 		}

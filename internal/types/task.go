@@ -13,6 +13,7 @@ const (
 	TypeKnowledgeMove        = "knowledge:move"         // 知识移动任务
 	TypeDataTableSummary     = "datatable:summary"      // 表格摘要任务
 	TypeImageMultimodal      = "image:multimodal"       // 图片多模态处理任务（OCR + VLM Caption）
+	TypeImageProcess         = "image:process"           // 图片知识处理任务（独立图片上传到图片库）
 	TypeKnowledgePostProcess = "knowledge:post_process" // 知识后处理任务（统一调度）
 	TypeManualProcess        = "manual:process"         // 手工知识更新任务（cleanup + 重新索引）
 	TypeDataSourceSync       = "datasource:sync"        // 数据源同步任务
@@ -168,6 +169,19 @@ type ImageMultimodalPayload struct {
 	EnableCaption   bool   `json:"enable_caption"`
 	Language        string `json:"language,omitempty"`          // Request locale for {{language}} in prompt templates
 	ImageSourceType string `json:"image_source_type,omitempty"` // Source type of the image (e.g., "scanned_pdf")
+}
+
+// ImageProcessPayload represents the image knowledge processing task payload.
+// Enqueued when an image is uploaded to an "image" type knowledge base.
+type ImageProcessPayload struct {
+	TracingContext
+	TenantID        uint64 `json:"tenant_id"`
+	KnowledgeID     string `json:"knowledge_id"`
+	KnowledgeBaseID string `json:"knowledge_base_id"`
+	ImageURL        string `json:"image_url"`        // provider:// URL of the uploaded image
+	EnableOCR       bool   `json:"enable_ocr"`        // always true for image KB
+	EnableCaption   bool   `json:"enable_caption"`    // always true for image KB
+	Language        string `json:"language,omitempty"` // Request locale
 }
 
 // KnowledgePostProcessPayload represents the knowledge post process task payload.
