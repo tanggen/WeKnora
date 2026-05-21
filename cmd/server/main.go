@@ -34,6 +34,7 @@ import (
 
 	"github.com/Tencent/WeKnora/internal/config"
 	"github.com/Tencent/WeKnora/internal/container"
+	"github.com/Tencent/WeKnora/internal/initialization"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/runtime"
 	"github.com/Tencent/WeKnora/internal/tracing"
@@ -50,6 +51,12 @@ func main() {
 
 	// Build dependency injection container
 	c := container.BuildContainer(runtime.GetContainer())
+
+	// Seed system data (system tenant, admin user, plan cache)
+	// This is idempotent: if data already exists, it is not overwritten.
+	if err := c.Invoke(initialization.SeedSystemData); err != nil {
+		logger.Warnf(context.Background(), "Seed data initialization warning: %v", err)
+	}
 
 	// Run application
 	err := c.Invoke(func(

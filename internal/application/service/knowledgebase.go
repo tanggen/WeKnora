@@ -31,6 +31,7 @@ type knowledgeBaseService struct {
 	fileSvc        interfaces.FileService
 	graphEngine    interfaces.RetrieveGraphRepository
 	asynqClient    interfaces.TaskEnqueuer
+	statsRepo      interfaces.TenantStatsRepository
 }
 
 // NewKnowledgeBaseService creates a new knowledge base service
@@ -45,6 +46,7 @@ func NewKnowledgeBaseService(repo interfaces.KnowledgeBaseRepository,
 	fileSvc interfaces.FileService,
 	graphEngine interfaces.RetrieveGraphRepository,
 	asynqClient interfaces.TaskEnqueuer,
+	statsRepo interfaces.TenantStatsRepository,
 ) interfaces.KnowledgeBaseService {
 	return &knowledgeBaseService{
 		repo:           repo,
@@ -58,6 +60,7 @@ func NewKnowledgeBaseService(repo interfaces.KnowledgeBaseRepository,
 		fileSvc:        fileSvc,
 		graphEngine:    graphEngine,
 		asynqClient:    asynqClient,
+		statsRepo:      statsRepo,
 	}
 }
 
@@ -92,6 +95,11 @@ func (s *knowledgeBaseService) CreateKnowledgeBase(ctx context.Context,
 			"tenant_id":         kb.TenantID,
 		})
 		return nil, err
+	}
+
+	// Increment knowledge base count
+	if err := s.statsRepo.IncrementKBCount(ctx, kb.TenantID, 1); err != nil {
+		logger.Warnf(ctx, "Failed to increment KB count: %v", err)
 	}
 
 	logger.Infof(ctx, "Knowledge base created successfully, ID: %s, name: %s", kb.ID, kb.Name)
@@ -372,6 +380,11 @@ func (s *knowledgeBaseService) DeleteKnowledgeBase(ctx context.Context, id strin
 			"knowledge_base_id": id,
 		})
 		return err
+	}
+
+	// Decrement knowledge base count
+	if err := s.statsRepo.IncrementKBCount(ctx, tenantID, -1); err != nil {
+		logger.Warnf(ctx, "Failed to decrement KB count: %v", err)
 	}
 
 	// Step 1b: Remove all organization shares for this KB so org settings no longer show them

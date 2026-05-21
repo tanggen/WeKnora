@@ -54,6 +54,36 @@ func (r *tenantRepository) ListTenants(ctx context.Context) ([]*types.Tenant, er
 	return tenants, nil
 }
 
+// FindAll returns paginated tenants with optional keyword/status/plan filters (admin only)
+func (r *tenantRepository) FindAll(ctx context.Context, keyword string, status string, planID string, page, pageSize int) ([]*types.Tenant, int64, error) {
+	var tenants []*types.Tenant
+	var total int64
+
+	query := r.db.WithContext(ctx).Model(&types.Tenant{})
+
+	if keyword != "" {
+		escaped := escapeLikeKeyword(keyword)
+		query = query.Where("name ILIKE ? OR description ILIKE ?", "%"+escaped+"%", "%"+escaped+"%")
+	}
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+	if planID != "" {
+		query = query.Where("plan_id = ?", planID)
+	}
+
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	offset := (page - 1) * pageSize
+	if err := query.Offset(offset).Limit(pageSize).Order("created_at DESC").Find(&tenants).Error; err != nil {
+		return nil, 0, err
+	}
+
+	return tenants, total, nil
+}
+
 // SearchTenants searches tenants with pagination and filters
 func (r *tenantRepository) SearchTenants(ctx context.Context, keyword string, tenantID uint64, page, pageSize int) ([]*types.Tenant, int64, error) {
 	var tenants []*types.Tenant

@@ -1,6 +1,7 @@
 package types
 
 import (
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -19,7 +20,12 @@ type User struct {
 	// Avatar URL of the user
 	Avatar string `json:"avatar"     gorm:"type:varchar(500)"`
 	// Tenant ID that the user belongs to
+	// Deprecated: use tenant_users table instead. Kept for backward compatibility.
 	TenantID uint64 `json:"tenant_id"  gorm:"index"`
+	// Phone number of the user (optional, globally unique when set)
+	Phone string `json:"phone"      gorm:"type:varchar(20)"`
+	// Whether the user needs to change password on next login
+	PasswordExpired bool `json:"password_expired" gorm:"default:false"`
 	// Whether the user is active
 	IsActive bool `json:"is_active"  gorm:"default:true"`
 	// Whether the user can access all tenants (cross-tenant access)
@@ -58,10 +64,22 @@ type AuthToken struct {
 	User *User `json:"user,omitempty" gorm:"foreignKey:UserID"`
 }
 
-// LoginRequest represents a login request
+// LoginRequest represents a login request.
+// Account supports smart routing: email (contains @), phone (11 digits), or username.
+// For backward compatibility, "email" field is also accepted if "account" is empty.
 type LoginRequest struct {
-	Email    string `json:"email"    binding:"required,email"`
-	Password string `json:"password" binding:"required,min=6"`
+	Account  string `json:"account"`
+	Email    string `json:"email"`          // deprecated, kept for backward compatibility
+	Password string `json:"password" binding:"required"`
+}
+
+// EffectiveAccount returns the account identifier, preferring the new "account" field
+// over the legacy "email" field.
+func (r *LoginRequest) EffectiveAccount() string {
+	if strings.TrimSpace(r.Account) != "" {
+		return strings.TrimSpace(r.Account)
+	}
+	return strings.TrimSpace(r.Email)
 }
 
 type OIDCAuthURLResponse struct {
@@ -96,9 +114,11 @@ type OIDCUserInfo struct {
 
 // RegisterRequest represents a registration request
 type RegisterRequest struct {
-	Username string `json:"username" binding:"required,min=2,max=50"`
-	Email    string `json:"email"    binding:"required,email"`
-	Password string `json:"password" binding:"required,min=6"`
+	Username    string `json:"username"      binding:"required,min=2,max=64"`
+	Email       string `json:"email"         binding:"required,email"`
+	Password    string `json:"password"      binding:"required,min=8,max=128"`
+	Phone       string `json:"phone"`                               // optional
+	TenantName  string `json:"tenant_name"`                         // optional, default: "{username}的知识空间"
 }
 
 // LoginResponse represents a login response
@@ -109,6 +129,10 @@ type LoginResponse struct {
 	Tenant       *Tenant `json:"tenant,omitempty"`
 	Token        string  `json:"token,omitempty"`
 	RefreshToken string  `json:"refresh_token,omitempty"`
+	// Code is set to "FIRST_LOGIN_RESET" when password_expired is true
+	Code string `json:"code,omitempty"`
+	// ResetToken is set when password_expired is true
+	ResetToken string `json:"reset_token,omitempty"`
 }
 
 // RegisterResponse represents a registration response
@@ -117,6 +141,11 @@ type RegisterResponse struct {
 	Message string  `json:"message,omitempty"`
 	User    *User   `json:"user,omitempty"`
 	Tenant  *Tenant `json:"tenant,omitempty"`
+	// Enhanced fields per SaaS auth spec
+	Token           string `json:"token,omitempty"`
+	RefreshToken    string `json:"refresh_token,omitempty"`
+	ExpiresIn       int64  `json:"expires_in,omitempty"`
+	TokenType       string `json:"token_type,omitempty"`
 }
 
 // UserInfo represents user information for API responses

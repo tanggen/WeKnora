@@ -48,6 +48,7 @@ import (
 	memoryService "github.com/Tencent/WeKnora/internal/application/service/memory"
 	"github.com/Tencent/WeKnora/internal/application/service/retriever"
 	"github.com/Tencent/WeKnora/internal/config"
+	"github.com/Tencent/WeKnora/internal/cron"
 	"github.com/Tencent/WeKnora/internal/database"
 	"github.com/Tencent/WeKnora/internal/datasource"
 	feishuConnector "github.com/Tencent/WeKnora/internal/datasource/connector/feishu"
@@ -76,6 +77,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/tracing/langfuse"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
+	secutils "github.com/Tencent/WeKnora/internal/utils"
 	"github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/auth"
 	wgrpc "github.com/weaviate/weaviate-go-client/v5/weaviate/grpc"
@@ -104,6 +106,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(initDatabase))
 	must(container.Provide(initFileService))
 	must(container.Provide(initRedisClient))
+	must(container.Provide(secutils.NewRateLimiter))
 	must(container.Provide(initAntsPool))
 	must(container.Provide(initContextStorage))
 
@@ -153,6 +156,9 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(repository.NewDataSourceRepository))
 	must(container.Provide(repository.NewSyncLogRepository))
 	must(container.Provide(repository.NewWikiPageRepository))
+	must(container.Provide(repository.NewTenantUserRepository))
+	must(container.Provide(repository.NewPlanRepository))
+	must(container.Provide(repository.NewTenantStatsRepository))
 
 	// MCP manager for managing MCP client connections
 	logger.Debugf(ctx, "[Container] Registering MCP manager...")
@@ -174,6 +180,12 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewEvaluationService))
 	must(container.Provide(service.NewUserService))
 	must(container.Provide(service.NewWeKnoraCloudService))
+	must(container.Provide(service.NewTenantUserService))
+	must(container.Provide(service.NewPlanService))
+	must(container.Provide(service.NewTenantStatsService))
+	must(container.Provide(service.NewMenuService))
+	must(container.Provide(service.NewTokenQuotaService))
+	must(container.Provide(service.NewAdminService))
 
 	// Extract services - register individual extracters with names
 	must(container.Provide(service.NewChunkExtractService, dig.Name("chunkExtractor")))
@@ -294,8 +306,19 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Invoke(registerIMAdapterFactories))
 	must(container.Provide(handler.NewIMHandler))
 	must(container.Provide(handler.NewWeKnoraCloudHandler))
+	must(container.Provide(handler.NewTenantUserHandler))
+	must(container.Provide(handler.NewPlanHandler))
+	must(container.Provide(handler.NewTenantStatsHandler))
+	must(container.Provide(handler.NewAdminStatsHandler))
+	must(container.Provide(handler.NewMenuHandler))
+	must(container.Provide(handler.NewTokenUsageHandler))
+	must(container.Provide(handler.NewAdminTenantHandler))
 	logger.Debugf(ctx, "[Container] HTTP handlers registered")
 
+	// Cron scheduler for periodic background tasks
+	logger.Debugf(ctx, "[Container] Registering cron scheduler...")
+	must(container.Provide(cron.NewScheduler))
+	must(container.Invoke(startCronScheduler))
 	// Router configuration
 	logger.Debugf(ctx, "[Container] Registering router and starting task server...")
 	must(container.Provide(router.NewRouter))
@@ -1212,6 +1235,17 @@ func startDataSourceScheduler(scheduler *datasource.Scheduler, cleaner interface
 	}
 
 	cleaner.RegisterWithName("DataSourceScheduler", func() error {
+		scheduler.Stop()
+		return nil
+	})
+}
+
+// startCronScheduler starts the background cron scheduler and registers cleanup.
+func startCronScheduler(scheduler *cron.Scheduler, cleaner interfaces.ResourceCleaner) {
+	scheduler.Start()
+	logger.Infof(context.Background(), "[Container] Cron scheduler started")
+
+	cleaner.RegisterWithName("CronScheduler", func() error {
 		scheduler.Stop()
 		return nil
 	})

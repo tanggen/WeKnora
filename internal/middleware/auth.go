@@ -27,6 +27,7 @@ var noAuthAPI = map[string][]string{
 	"/api/v1/auth/oidc/url":      {"GET"},
 	"/api/v1/auth/oidc/callback": {"GET"},
 	"/api/v1/auth/refresh":       {"POST"},
+	"/api/v1/auth/change-password": {"POST"},
 	"/api/v1/files/presigned":    {"GET"},
 }
 

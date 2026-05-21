@@ -42,6 +42,8 @@ type TenantRepository interface {
 	ListTenants(ctx context.Context) ([]*types.Tenant, error)
 	// SearchTenants searches tenants with pagination and filters
 	SearchTenants(ctx context.Context, keyword string, tenantID uint64, page, pageSize int) ([]*types.Tenant, int64, error)
+	// FindAll returns paginated tenants with optional keyword/status/plan filters (admin only)
+	FindAll(ctx context.Context, keyword string, status string, planID string, page, pageSize int) ([]*types.Tenant, int64, error)
 	// UpdateTenant updates a tenant
 	UpdateTenant(ctx context.Context, tenant *types.Tenant) error
 	// DeleteTenant deletes a tenant

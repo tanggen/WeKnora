@@ -79,6 +79,8 @@ type Knowledge struct {
 	KnowledgeBaseID string `json:"knowledge_base_id"`
 	// Optional tag ID for categorization within a knowledge base
 	TagID string `json:"tag_id"             gorm:"type:varchar(36);index"`
+	// User who created this knowledge
+	CreatedBy string `json:"created_by"        gorm:"type:varchar(36);index"`
 	// Type of the knowledge
 	Type string `json:"type"`
 	// Title of the knowledge

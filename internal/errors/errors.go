@@ -36,6 +36,9 @@ const (
 	ErrAgentInvalidMaxIterations ErrorCode = 2102
 	ErrAgentInvalidTemperature   ErrorCode = 2103
 
+	// Quota related error codes (2200-2299)
+	ErrTokenQuotaExceeded ErrorCode = 2200
+
 	// Add more error codes here
 )
 
@@ -100,6 +103,18 @@ func NewConflictError(message string) *AppError {
 		Code:     ErrConflict,
 		Message:  message,
 		HTTPCode: http.StatusConflict,
+	}
+}
+
+// NewTooManyRequestsError creates a too many requests error
+func NewTooManyRequestsError(message string) *AppError {
+	if message == "" {
+		message = "请求过于频繁，请稍后重试"
+	}
+	return &AppError{
+		Code:     ErrTooManyRequests,
+		Message:  message,
+		HTTPCode: http.StatusTooManyRequests,
 	}
 }
 
@@ -181,6 +196,21 @@ func NewAgentInvalidTemperatureError() *AppError {
 		Code:     ErrAgentInvalidTemperature,
 		Message:  "温度参数必须在0-2之间",
 		HTTPCode: http.StatusBadRequest,
+	}
+}
+
+// NewTokenQuotaExceededError creates a token quota exceeded error
+func NewTokenQuotaExceededError(used, quota int64, resetAt string) *AppError {
+	msg := fmt.Sprintf("本月 Token 配额已用完。当前已用 %d/%d tokens。请升级套餐。", used, quota)
+	return &AppError{
+		Code:     ErrTokenQuotaExceeded,
+		Message:  msg,
+		HTTPCode: http.StatusForbidden,
+		Details: map[string]interface{}{
+			"used":     used,
+			"quota":    quota,
+			"reset_at": resetAt,
+		},
 	}
 }
 

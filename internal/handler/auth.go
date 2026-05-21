@@ -26,20 +26,24 @@ type AuthHandler struct {
 	userService   interfaces.UserService
 	tenantService interfaces.TenantService
 	configInfo    *config.Config
+	rateLimiter   *secutils.RateLimiter
 }
 
 // NewAuthHandler creates a new auth handler instance with the provided services
 // Parameters:
 //   - userService: An implementation of the UserService interface for business logic
 //   - tenantService: An implementation of the TenantService interface for tenant management
+//   - rateLimiter: Redis-backed rate limiter (can be nil for no rate limiting)
 //
 // Returns a pointer to the newly created AuthHandler
 func NewAuthHandler(configInfo *config.Config,
-	userService interfaces.UserService, tenantService interfaces.TenantService) *AuthHandler {
+	userService interfaces.UserService, tenantService interfaces.TenantService,
+	rateLimiter *secutils.RateLimiter) *AuthHandler {
 	return &AuthHandler{
 		configInfo:    configInfo,
 		userService:   userService,
 		tenantService: tenantService,
+		rateLimiter:   rateLimiter,
 	}
 }
 
@@ -67,6 +71,18 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
+	// Rate limit check
+	clientIP := c.ClientIP()
+	if h.rateLimiter != nil {
+		result, _ := h.rateLimiter.CheckRateLimit(ctx, "ratelimit:register", clientIP, 3, 3600)
+		if result == secutils.RateLimitExceeded {
+			logger.Warnf(ctx, "Rate limit exceeded for IP: %s", clientIP)
+			appErr := errors.NewTooManyRequestsError("Too many registration attempts, please try again later")
+			c.Error(appErr)
+			return
+		}
+	}
+
 	var req types.RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		logger.Error(ctx, "Failed to parse registration request parameters", err)
@@ -76,7 +92,6 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	}
 	req.Username = secutils.SanitizeForLog(req.Username)
 	req.Email = secutils.SanitizeForLog(req.Email)
-	req.Password = secutils.SanitizeForLog(req.Password)
 
 	// Validate required fields
 	if req.Username == "" || req.Email == "" || req.Password == "" {
@@ -85,22 +100,81 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		c.Error(appErr)
 		return
 	}
-	req.Username = secutils.SanitizeForLog(req.Username)
-	req.Email = secutils.SanitizeForLog(req.Email)
+
+	// Validate username format
+	if !secutils.IsValidUsername(req.Username) {
+		logger.Error(ctx, "Invalid username format")
+		appErr := errors.NewValidationError("Username must be 2-64 characters with only letters, digits, and underscores")
+		c.Error(appErr)
+		return
+	}
+
+	// Validate password strength
+	if !secutils.IsStrongPassword(req.Password) {
+		logger.Error(ctx, "Weak password")
+		appErr := errors.NewValidationError("Password must be 8-128 characters with at least one uppercase letter, one lowercase letter, and one digit")
+		c.Error(appErr)
+		return
+	}
+
 	// Call service to register user
 	user, err := h.userService.Register(ctx, &req)
 	if err != nil {
 		logger.Errorf(ctx, "Failed to register user: %v", err)
+		// Map service errors to appropriate HTTP errors
+		errMsg := strings.ToLower(err.Error())
+		if strings.Contains(errMsg, "email already exists") {
+			appErr := errors.NewConflictError("Email already in use")
+			c.Error(appErr)
+			return
+		}
+		if strings.Contains(errMsg, "username already exists") {
+			appErr := errors.NewConflictError("Username already in use")
+			c.Error(appErr)
+			return
+		}
+		if strings.Contains(errMsg, "phone already exists") {
+			appErr := errors.NewConflictError("Phone already in use")
+			c.Error(appErr)
+			return
+		}
+		if strings.Contains(errMsg, "password must be") {
+			appErr := errors.NewValidationError(err.Error())
+			c.Error(appErr)
+			return
+		}
 		appErr := errors.NewBadRequestError(err.Error())
 		c.Error(appErr)
 		return
 	}
 
-	// Return success response
+	// Generate tokens for the newly registered user
+	accessToken, refreshToken, tokenErr := h.userService.GenerateTokens(ctx, user)
+	if tokenErr != nil {
+		logger.Errorf(ctx, "Failed to generate tokens after registration: %v", tokenErr)
+		// Registration succeeded but token generation failed - still return user info
+		response := &types.RegisterResponse{
+			Success: true,
+			Message: "Registration successful (token generation failed)",
+			User:    user,
+		}
+		c.JSON(http.StatusCreated, response)
+		return
+	}
+
+	// Get tenant info
+	tenant, _ := h.tenantService.GetTenantByID(ctx, user.TenantID)
+
+	// Return success response with tokens
 	response := &types.RegisterResponse{
-		Success: true,
-		Message: "Registration successful",
-		User:    user,
+		Success:      true,
+		Message:      "Registration successful",
+		User:         user,
+		Tenant:       tenant,
+		Token:        accessToken,
+		RefreshToken: refreshToken,
+		ExpiresIn:    int64(secutils.AccessTokenExpiry.Seconds()),
+		TokenType:    "Bearer",
 	}
 
 	logger.Infof(ctx, "User registered successfully: %s", secutils.SanitizeForLog(user.Email))
@@ -122,6 +196,9 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	logger.Info(ctx, "Start user login")
 
+	// Rate limit check (login attempt)
+	clientIP := c.ClientIP()
+
 	var req types.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		logger.Error(ctx, "Failed to parse login request parameters", err)
@@ -129,12 +206,19 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		c.Error(appErr)
 		return
 	}
-	email := secutils.SanitizeForLog(req.Email)
 
-	// Validate required fields
-	if req.Email == "" || req.Password == "" {
+	account := req.EffectiveAccount()
+	if account == "" {
 		logger.Error(ctx, "Missing required login fields")
-		appErr := errors.NewValidationError("Email and password are required")
+		appErr := errors.NewValidationError("Account and password are required")
+		c.Error(appErr)
+		return
+	}
+
+	// Validate password is not empty
+	if req.Password == "" {
+		logger.Error(ctx, "Missing password in login request")
+		appErr := errors.NewValidationError("Password is required")
 		c.Error(appErr)
 		return
 	}
@@ -148,16 +232,46 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	// Check if login was successful
+	// Handle login failure with rate limiting on failure
 	if !response.Success {
+		// Check if this is a first-login reset scenario
+		if response.Code == "FIRST_LOGIN_RESET" {
+			logger.Infof(ctx, "First login or password expired for user: %s", secutils.SanitizeForLog(account))
+			c.JSON(http.StatusLocked, gin.H{
+				"error": gin.H{
+					"code":    response.Code,
+					"message": response.Message,
+				},
+				"data": gin.H{
+					"user_id":     response.User.ID,
+					"reset_token": response.ResetToken,
+				},
+			})
+			return
+		}
+
+		// Rate limit on login failure
+		if h.rateLimiter != nil {
+			result, _ := h.rateLimiter.CheckRateLimit(ctx, "ratelimit:login", clientIP, 10, 900)
+			if result == secutils.RateLimitExceeded {
+				logger.Warnf(ctx, "Login rate limit exceeded for IP: %s", clientIP)
+				appErr := errors.NewTooManyRequestsError("Too many login attempts, please try again later")
+				c.Error(appErr)
+				return
+			}
+		}
+
 		logger.Warnf(ctx, "Login failed: %s", response.Message)
 		c.JSON(http.StatusUnauthorized, response)
 		return
 	}
 
-	// User is already in the correct format from service
+	// Reset rate limit on successful login
+	if h.rateLimiter != nil {
+		_ = h.rateLimiter.ResetRateLimit(ctx, "ratelimit:login", clientIP)
+	}
 
-	logger.Infof(ctx, "User logged in successfully, email: %s", email)
+	logger.Infof(ctx, "User logged in successfully, account: %s", secutils.SanitizeForLog(account))
 	c.JSON(http.StatusOK, response)
 }
 
@@ -455,14 +569,16 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 
 // ChangePassword godoc
 // @Summary      修改密码
-// @Description  修改当前用户的登录密码
+// @Description  修改当前用户的登录密码。支持两种模式：
+// @Description  - 常规模式: Authorization: Bearer <access_token> + old_password
+// @Description  - 首次登录/密码过期: Authorization: Bearer <reset_token> (无需 old_password)
 // @Tags         认证
 // @Accept       json
 // @Produce      json
 // @Param        request  body      object{old_password=string,new_password=string}  true  "密码修改请求"
 // @Success      200      {object}  map[string]interface{}                           "修改成功"
 // @Failure      400      {object}  errors.AppError                                  "请求参数错误"
-// @Security     Bearer
+// @Failure      401      {object}  errors.AppError                                  "令牌无效"
 // @Router       /auth/change-password [post]
 func (h *AuthHandler) ChangePassword(c *gin.Context) {
 	ctx := c.Request.Context()
@@ -470,8 +586,8 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 	logger.Info(ctx, "Start password change")
 
 	var req struct {
-		OldPassword string `json:"old_password" binding:"required"`
-		NewPassword string `json:"new_password" binding:"required,min=6"`
+		OldPassword string `json:"old_password"`
+		NewPassword string `json:"new_password" binding:"required,min=8,max=128"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -481,25 +597,82 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 
-	// Get current user
-	user, err := h.userService.GetCurrentUser(ctx)
-	if err != nil {
-		logger.Errorf(ctx, "Failed to get current user: %v", err)
-		appErr := errors.NewUnauthorizedError("Failed to get user information").WithDetails(err.Error())
+	// Determine authentication mode: access_token or reset_token
+	var userID string
+	isResetToken := false
+
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+		appErr := errors.NewUnauthorizedError("Authorization header is required")
+		c.Error(appErr)
+		return
+	}
+	token := strings.TrimPrefix(authHeader, "Bearer ")
+
+	// Try parsing as access_token first (user logged in normally)
+	claims, parseErr := secutils.ParseToken(token)
+	if parseErr == nil {
+		if claims.TokenType == secutils.TokenTypeAccess {
+			// Normal mode: access_token → user from context is available
+			userID = claims.Subject
+		} else if claims.TokenType == secutils.TokenTypeReset {
+			// Reset token mode: first login or password expired
+			userID = claims.Subject
+			isResetToken = true
+			req.OldPassword = "" // Force skip old password verification
+		} else {
+			appErr := errors.NewUnauthorizedError("Invalid token type for password change")
+			c.Error(appErr)
+			return
+		}
+	} else {
+		// Token parsing failed, try getting user from context (middleware might have set it)
+		user, getErr := h.userService.GetCurrentUser(ctx)
+		if getErr != nil {
+			appErr := errors.NewUnauthorizedError("Invalid token").WithDetails(parseErr.Error())
+			c.Error(appErr)
+			return
+		}
+		userID = user.ID
+	}
+
+	if userID == "" {
+		appErr := errors.NewUnauthorizedError("Could not determine user identity")
 		c.Error(appErr)
 		return
 	}
 
 	// Change password
-	err = h.userService.ChangePassword(ctx, user.ID, req.OldPassword, req.NewPassword)
+	err := h.userService.ChangePassword(ctx, userID, req.OldPassword, req.NewPassword)
 	if err != nil {
 		logger.Errorf(ctx, "Failed to change password: %v", err)
+		errMsg := strings.ToLower(err.Error())
+		if strings.Contains(errMsg, "invalid old password") {
+			appErr := errors.NewUnauthorizedError("Old password is incorrect")
+			c.Error(appErr)
+			return
+		}
+		if strings.Contains(errMsg, "same password") || strings.Contains(errMsg, "different") {
+			appErr := errors.NewValidationError("New password must be different from old password")
+			c.Error(appErr)
+			return
+		}
+		if strings.Contains(errMsg, "password must be") {
+			appErr := errors.NewValidationError(err.Error())
+			c.Error(appErr)
+			return
+		}
 		appErr := errors.NewBadRequestError("Password change failed").WithDetails(err.Error())
 		c.Error(appErr)
 		return
 	}
 
-	logger.Infof(ctx, "Password changed successfully for user: %s", user.Email)
+	// If using reset token, blacklist it after successful password change
+	if isResetToken {
+		_ = h.userService.RevokeToken(ctx, token)
+	}
+
+	logger.Infof(ctx, "Password changed successfully for user: %s", userID)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "Password changed successfully",

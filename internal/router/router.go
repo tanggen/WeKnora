@@ -68,6 +68,13 @@ type RouterParams struct {
 	DataSourceHandler        *handler.DataSourceHandler
 	WeKnoraCloudHandler      *handler.WeKnoraCloudHandler
 	WikiPageHandler          *handler.WikiPageHandler
+	TenantUserHandler        *handler.TenantUserHandler
+	PlanHandler              *handler.PlanHandler
+	TenantStatsHandler       *handler.TenantStatsHandler
+	AdminStatsHandler        *handler.AdminStatsHandler
+	MenuHandler              *handler.MenuHandler
+	TokenUsageHandler        *handler.TokenUsageHandler
+	AdminTenantHandler       *handler.AdminTenantHandler
 }
 
 // NewRouter 创建新的路由
@@ -160,6 +167,12 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterDataSourceRoutes(v1, params.DataSourceHandler)
 		RegisterWeKnoraCloudRoutes(v1, params.WeKnoraCloudHandler)
 		RegisterWikiPageRoutes(v1, params.WikiPageHandler)
+		RegisterTenantUserRoutes(v1, params.TenantUserHandler)
+		RegisterPlanRoutes(v1, params.PlanHandler)
+		RegisterTenantStatsRoutes(v1, params.TenantStatsHandler, params.TokenUsageHandler)
+		RegisterAdminStatsRoutes(v1, params.AdminStatsHandler)
+		RegisterMenuRoutes(v1, params.MenuHandler)
+		RegisterAdminTenantRoutes(v1, params.AdminTenantHandler)
 	}
 
 	return r
@@ -947,6 +960,95 @@ func RegisterDataSourceRoutes(r *gin.RouterGroup, handler *handler.DataSourceHan
 func RegisterWeKnoraCloudRoutes(r *gin.RouterGroup, handler *handler.WeKnoraCloudHandler) {
 	r.POST("/weknoracloud/credentials", handler.SaveCredentials)
 	r.GET("/models/weknoracloud/status", handler.Status)
+}
+
+// RegisterTenantUserRoutes registers tenant user management routes
+func RegisterTenantUserRoutes(r *gin.RouterGroup, handler *handler.TenantUserHandler) {
+	if handler == nil {
+		return
+	}
+	// Tenant user routes under /tenants/:tid/users
+	tenantUsers := r.Group("/tenants/:tid/users")
+	{
+		tenantUsers.GET("", handler.ListUsers)
+		tenantUsers.POST("", handler.CreateUser)
+		tenantUsers.PUT("/:uid", handler.UpdateUser)
+		tenantUsers.DELETE("/:uid", handler.DeleteUser)
+		tenantUsers.PUT("/:uid/status", handler.SetUserStatus)
+		tenantUsers.PUT("/:uid/role", handler.SetUserRole)
+	}
+}
+
+// RegisterPlanRoutes registers plan management routes
+func RegisterPlanRoutes(r *gin.RouterGroup, handler *handler.PlanHandler) {
+	if handler == nil {
+		return
+	}
+	// Public (authenticated) plan listing
+	r.GET("/plans", handler.ListPlans)
+	r.GET("/plans/:plan_id", handler.GetPlan)
+
+	// Admin plan management
+	admin := r.Group("/admin/plans")
+	{
+		admin.GET("", handler.ListAllPlans)
+		admin.POST("", handler.CreatePlan)
+		admin.PUT("/:plan_id", handler.UpdatePlan)
+		admin.DELETE("/:plan_id", handler.DeletePlan)
+		admin.PATCH("/:plan_id/status", handler.SetPlanStatus)
+	}
+
+	// Admin: assign plan to tenant
+	r.POST("/admin/tenants/:tenant_id/plan", handler.AssignPlan)
+}
+
+// RegisterMenuRoutes registers menu and permissions routes
+func RegisterMenuRoutes(r *gin.RouterGroup, handler *handler.MenuHandler) {
+	if handler == nil {
+		return
+	}
+	// Get current user's visible menu tree
+	r.GET("/menus", handler.GetMenus)
+	// Get current user's permissions and plan info
+	r.GET("/auth/permissions", handler.GetPermissions)
+}
+
+// RegisterTenantStatsRoutes registers tenant stats routes
+func RegisterTenantStatsRoutes(r *gin.RouterGroup, handler *handler.TenantStatsHandler, tokenUsageHandler *handler.TokenUsageHandler) {
+	if handler == nil {
+		return
+	}
+	r.GET("/tenants/:tenant_id/stats", handler.GetTenantStats)
+	if tokenUsageHandler != nil {
+		r.GET("/tenants/:tenant_id/stats/token-usage", tokenUsageHandler.GetTokenUsage)
+	}
+}
+
+// RegisterAdminStatsRoutes registers admin stats routes
+func RegisterAdminStatsRoutes(r *gin.RouterGroup, handler *handler.AdminStatsHandler) {
+	if handler == nil {
+		return
+	}
+	admin := r.Group("/admin/stats")
+	{
+		admin.GET("/tenants", handler.GetAdminTenantStats)
+		admin.GET("/overview", handler.GetAdminOverview)
+	}
+}
+
+// RegisterAdminTenantRoutes registers admin tenant management routes
+func RegisterAdminTenantRoutes(r *gin.RouterGroup, handler *handler.AdminTenantHandler) {
+	if handler == nil {
+		return
+	}
+	admin := r.Group("/admin/tenants")
+	{
+		admin.GET("", handler.ListTenants)
+		admin.GET("/:tenant_id", handler.GetTenant)
+		admin.PUT("/:tenant_id", handler.UpdateTenant)
+		admin.PATCH("/:tenant_id/status", handler.SetTenantStatus)
+		admin.GET("/:tenant_id/users", handler.GetTenantUsers)
+	}
 }
 
 // RegisterWikiPageRoutes registers wiki page related routes

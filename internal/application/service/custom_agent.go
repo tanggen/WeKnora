@@ -28,6 +28,7 @@ type customAgentService struct {
 	chunkRepo    interfaces.ChunkRepository
 	kbService    interfaces.KnowledgeBaseService
 	wikiPageRepo interfaces.WikiPageRepository
+	statsRepo    interfaces.TenantStatsRepository
 }
 
 // NewCustomAgentService creates a new custom agent service
@@ -36,12 +37,14 @@ func NewCustomAgentService(
 	chunkRepo interfaces.ChunkRepository,
 	kbService interfaces.KnowledgeBaseService,
 	wikiPageRepo interfaces.WikiPageRepository,
+	statsRepo interfaces.TenantStatsRepository,
 ) interfaces.CustomAgentService {
 	return &customAgentService{
 		repo:         repo,
 		chunkRepo:    chunkRepo,
 		kbService:    kbService,
 		wikiPageRepo: wikiPageRepo,
+		statsRepo:    statsRepo,
 	}
 }
 
@@ -88,6 +91,11 @@ func (s *customAgentService) CreateAgent(ctx context.Context, agent *types.Custo
 			"tenant_id": agent.TenantID,
 		})
 		return nil, err
+	}
+
+	// Increment agent count
+	if err := s.statsRepo.IncrementAgentCount(ctx, tenantID, 1); err != nil {
+		logger.Warnf(ctx, "Failed to increment agent count: %v", err)
 	}
 
 	logger.Infof(ctx, "Custom agent created successfully, ID: %s, name: %s", agent.ID, agent.Name)
@@ -368,6 +376,11 @@ func (s *customAgentService) DeleteAgent(ctx context.Context, id string) error {
 			"agent_id": id,
 		})
 		return err
+	}
+
+	// Decrement agent count
+	if err := s.statsRepo.IncrementAgentCount(ctx, tenantID, -1); err != nil {
+		logger.Warnf(ctx, "Failed to decrement agent count: %v", err)
 	}
 
 	logger.Infof(ctx, "Custom agent deleted successfully, ID: %s", id)

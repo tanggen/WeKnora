@@ -3,9 +3,11 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
+	"github.com/Tencent/WeKnora/internal/utils"
 	"gorm.io/gorm"
 )
 
@@ -46,6 +48,43 @@ func (r *userRepository) GetUserByID(ctx context.Context, id string) (*types.Use
 func (r *userRepository) GetUserByEmail(ctx context.Context, email string) (*types.User, error) {
 	var user types.User
 	if err := r.db.WithContext(ctx).Where("email = ?", email).First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrUserNotFound
+		}
+		return nil, err
+	}
+	return &user, nil
+}
+
+// FindByAccount finds a user by account identifier with smart routing.
+// It automatically classifies the account as email, phone, or username and
+// queries the appropriate column. Returns nil, ErrUserNotFound if no match.
+func (r *userRepository) FindByAccount(ctx context.Context, account string) (*types.User, error) {
+	var user types.User
+	var err error
+	switch utils.ClassifyAccount(account) {
+	case utils.AccountTypeEmail:
+		err = r.db.WithContext(ctx).Where("email = ?", account).First(&user).Error
+	case utils.AccountTypePhone:
+		err = r.db.WithContext(ctx).Where("phone = ?", account).First(&user).Error
+	case utils.AccountTypeUsername:
+		fallthrough
+	default:
+		err = r.db.WithContext(ctx).Where("username = ?", account).First(&user).Error
+	}
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrUserNotFound
+		}
+		return nil, fmt.Errorf("failed to find user by account: %w", err)
+	}
+	return &user, nil
+}
+
+// GetUserByPhone gets a user by phone number
+func (r *userRepository) GetUserByPhone(ctx context.Context, phone string) (*types.User, error) {
+	var user types.User
+	if err := r.db.WithContext(ctx).Where("phone = ?", phone).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrUserNotFound
 		}

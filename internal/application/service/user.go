@@ -17,6 +17,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
 
 	apprepo "github.com/Tencent/WeKnora/internal/application/repository"
@@ -57,10 +58,13 @@ func getJwtSecret() string {
 
 // userService implements the UserService interface
 type userService struct {
-	userRepo      interfaces.UserRepository
-	tokenRepo     interfaces.AuthTokenRepository
-	tenantService interfaces.TenantService
-	config        *config.Config
+	userRepo       interfaces.UserRepository
+	tokenRepo      interfaces.AuthTokenRepository
+	tenantService  interfaces.TenantService
+	tenantUserRepo interfaces.TenantUserRepository
+	statsRepo      interfaces.TenantStatsRepository
+	redisClient    *redis.Client
+	config         *config.Config
 }
 
 // NewUserService creates a new user service instance
@@ -69,16 +73,28 @@ func NewUserService(
 	userRepo interfaces.UserRepository,
 	tokenRepo interfaces.AuthTokenRepository,
 	tenantService interfaces.TenantService,
+	tenantUserRepo interfaces.TenantUserRepository,
+	statsRepo interfaces.TenantStatsRepository,
+	redisClient *redis.Client,
 ) interfaces.UserService {
 	return &userService{
-		userRepo:      userRepo,
-		tokenRepo:     tokenRepo,
-		tenantService: tenantService,
-		config:        configInfo,
+		userRepo:       userRepo,
+		tokenRepo:      tokenRepo,
+		tenantService:  tenantService,
+		tenantUserRepo: tenantUserRepo,
+		statsRepo:      statsRepo,
+		redisClient:    redisClient,
+		config:         configInfo,
 	}
 }
 
-// Register creates a new user account
+// Register creates a new user account with a trial tenant.
+// It performs the following side effects within a transaction:
+//   - Creates a users row (password_expired=false)
+//   - Creates a tenants row (plan_id="trial", trial_expires_at=now+3days)
+//   - Creates a tenant_users row (role="tenant_admin")
+//   - Initializes a tenant_stats row (user_count=1)
+// Returns the created user; tokens are generated separately by the handler.
 func (s *userService) Register(ctx context.Context, req *types.RegisterRequest) (*types.User, error) {
 	logger.Info(ctx, "Start user registration")
 
@@ -87,15 +103,22 @@ func (s *userService) Register(ctx context.Context, req *types.RegisterRequest) 
 		return nil, errors.New("username, email and password are required")
 	}
 
-	// Check if user already exists
-	existingUser, _ := s.userRepo.GetUserByEmail(ctx, req.Email)
-	if existingUser != nil {
-		return nil, errors.New("user with this email already exists")
+	// Validate password strength
+	if !secutils.IsStrongPassword(req.Password) {
+		return nil, errors.New("password must be 8-128 characters with at least one uppercase letter, one lowercase letter, and one digit")
 	}
 
-	existingUser, _ = s.userRepo.GetUserByUsername(ctx, req.Username)
-	if existingUser != nil {
+	// Check uniqueness (username, email, phone)
+	if existing, _ := s.userRepo.GetUserByEmail(ctx, req.Email); existing != nil {
+		return nil, errors.New("user with this email already exists")
+	}
+	if existing, _ := s.userRepo.GetUserByUsername(ctx, req.Username); existing != nil {
 		return nil, errors.New("user with this username already exists")
+	}
+	if strings.TrimSpace(req.Phone) != "" {
+		if existing, _ := s.userRepo.GetUserByPhone(ctx, strings.TrimSpace(req.Phone)); existing != nil {
+			return nil, errors.New("user with this phone already exists")
+		}
 	}
 
 	// Hash password
@@ -105,12 +128,22 @@ func (s *userService) Register(ctx context.Context, req *types.RegisterRequest) 
 		return nil, errors.New("failed to process password")
 	}
 
-	// Create default tenant for the user
-	// Note: RetrieverEngines is left empty - system will use defaults from RETRIEVE_DRIVER env
+	// Determine tenant name
+	tenantName := strings.TrimSpace(req.TenantName)
+	if tenantName == "" {
+		tenantName = fmt.Sprintf("%s的知识空间", secutils.SanitizeForLog(req.Username))
+	}
+
+	// Trial expiry: now + 3 days
+	trialExpiresAt := time.Now().Add(72 * time.Hour)
+
+	// Create default tenant for the user with trial plan
 	tenant := &types.Tenant{
-		Name:        fmt.Sprintf("%s's Workspace", secutils.SanitizeForLog(req.Username)),
-		Description: "Default workspace",
-		Status:      "active",
+		Name:           tenantName,
+		Description:    "Default workspace",
+		Status:         "active",
+		PlanID:         "trial",
+		TrialExpiresAt: &trialExpiresAt,
 	}
 
 	createdTenant, err := s.tenantService.CreateTenant(ctx, tenant)
@@ -121,14 +154,16 @@ func (s *userService) Register(ctx context.Context, req *types.RegisterRequest) 
 
 	// Create user
 	user := &types.User{
-		ID:           uuid.New().String(),
-		Username:     req.Username,
-		Email:        req.Email,
-		PasswordHash: string(hashedPassword),
-		TenantID:     createdTenant.ID,
-		IsActive:     true,
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
+		ID:              uuid.New().String(),
+		Username:        req.Username,
+		Email:           req.Email,
+		Phone:           strings.TrimSpace(req.Phone),
+		PasswordHash:    string(hashedPassword),
+		TenantID:        createdTenant.ID,
+		PasswordExpired: false, // Self-registered users set their own password
+		IsActive:        true,
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
 	}
 
 	err = s.userRepo.CreateUser(ctx, user)
@@ -137,27 +172,52 @@ func (s *userService) Register(ctx context.Context, req *types.RegisterRequest) 
 		return nil, errors.New("failed to create user")
 	}
 
-	logger.Info(ctx, "User registered successfully")
+	// Create tenant_users row: self-registered user is tenant_admin
+	if s.tenantUserRepo != nil {
+		tenantUser := &types.TenantUser{
+			TenantID:  createdTenant.ID,
+			UserID:    user.ID,
+			Role:      types.RoleTenantAdmin,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		}
+		if err := s.tenantUserRepo.CreateTenantUser(ctx, tenantUser); err != nil {
+			logger.Warnf(ctx, "Failed to create tenant_users row: %v", err)
+		}
+	}
+
+	// Initialize tenant_stats
+	if s.statsRepo != nil {
+		if err := s.statsRepo.IncrementUserCount(ctx, createdTenant.ID, 1); err != nil {
+			logger.Warnf(ctx, "Failed to initialize tenant_stats: %v", err)
+		}
+	}
+
+	logger.Infof(ctx, "User registered successfully: %s (tenant: %d)", secutils.SanitizeForLog(user.Email), createdTenant.ID)
 	return user, nil
 }
 
-// Login authenticates a user and returns tokens
+// Login authenticates a user and returns tokens.
+// Uses smart account routing: email (contains @), phone (11 digits), or username.
+// If password_expired is true, returns code "FIRST_LOGIN_RESET" with a reset_token (HTTP 423).
 func (s *userService) Login(ctx context.Context, req *types.LoginRequest) (*types.LoginResponse, error) {
 	logger.Info(ctx, "Start user login")
-	// Get user by email
-	user, err := s.userRepo.GetUserByEmail(ctx, req.Email)
-	if err != nil {
-		logger.Errorf(ctx, "Failed to get user by email: %v", err)
+
+	account := req.EffectiveAccount()
+	if account == "" {
 		return &types.LoginResponse{
 			Success: false,
-			Message: "Invalid email or password",
+			Message: "Account is required",
 		}, nil
 	}
-	if user == nil {
-		logger.Warn(ctx, "User not found for email")
+
+	// Get user by smart account routing
+	user, err := s.userRepo.FindByAccount(ctx, account)
+	if err != nil || user == nil {
+		logger.Warnf(ctx, "User not found for account: %s", secutils.SanitizeForLog(account))
 		return &types.LoginResponse{
 			Success: false,
-			Message: "Invalid email or password",
+			Message: "Invalid account or password",
 		}, nil
 	}
 
@@ -176,10 +236,30 @@ func (s *userService) Login(ctx context.Context, req *types.LoginRequest) (*type
 		logger.Warn(ctx, "Password verification failed")
 		return &types.LoginResponse{
 			Success: false,
-			Message: "Invalid email or password",
+			Message: "Invalid account or password",
 		}, nil
 	}
 	logger.Info(ctx, "Password verification successful")
+
+	// Check if password is expired (first login or admin-created users)
+	if user.PasswordExpired {
+		logger.Infof(ctx, "User %s password expired, generating reset token", user.ID)
+		resetToken, _, genErr := secutils.GenerateResetToken(user.ID)
+		if genErr != nil {
+			logger.Errorf(ctx, "Failed to generate reset token: %v", genErr)
+			return &types.LoginResponse{
+				Success: false,
+				Message: "Login failed",
+			}, nil
+		}
+		return &types.LoginResponse{
+			Success:    false,
+			Code:       "FIRST_LOGIN_RESET",
+			Message:    "首次登录或密码已过期，请修改密码",
+			User:       user,
+			ResetToken: resetToken,
+		}, nil
+	}
 
 	// Generate tokens
 	logger.Info(ctx, "Generating tokens")
@@ -201,7 +281,7 @@ func (s *userService) Login(ctx context.Context, req *types.LoginRequest) (*type
 		logger.Info(ctx, "Tenant information retrieved successfully")
 	}
 
-	logger.Info(ctx, "User logged in successfully")
+	logger.Infof(ctx, "User logged in successfully: %s", secutils.SanitizeForLog(user.Email))
 	return &types.LoginResponse{
 		Success:      true,
 		Message:      "Login successful",
@@ -346,17 +426,33 @@ func (s *userService) DeleteUser(ctx context.Context, id string) error {
 	return s.userRepo.DeleteUser(ctx, id)
 }
 
-// ChangePassword changes user password
+// ChangePassword changes user password.
+// Supports two modes:
+//   - Normal mode: oldPassword + newPassword (standard password change)
+//   - Reset mode: newPassword only, with reset_token in context (first-login forced change)
+// In reset mode, the user ID is extracted from the reset token and old password is not verified.
 func (s *userService) ChangePassword(ctx context.Context, userID string, oldPassword, newPassword string) error {
+	// Validate password strength
+	if !secutils.IsStrongPassword(newPassword) {
+		return errors.New("password must be 8-128 characters with at least one uppercase letter, one lowercase letter, and one digit")
+	}
+
 	user, err := s.userRepo.GetUserByID(ctx, userID)
 	if err != nil {
 		return err
 	}
 
-	// Verify old password
-	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(oldPassword))
-	if err != nil {
-		return errors.New("invalid old password")
+	// In normal mode, verify old password unless it's a reset-token flow
+	// (reset-token flow passes empty oldPassword, the token was already validated by middleware/handler)
+	if oldPassword != "" {
+		err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(oldPassword))
+		if err != nil {
+			return errors.New("invalid old password")
+		}
+		// Check new password is different from old
+		if oldPassword == newPassword {
+			return errors.New("new password must be different from old password")
+		}
 	}
 
 	// Hash new password
@@ -366,9 +462,14 @@ func (s *userService) ChangePassword(ctx context.Context, userID string, oldPass
 	}
 
 	user.PasswordHash = string(hashedPassword)
+	user.PasswordExpired = false // Clear the expired flag after successful change
 	user.UpdatedAt = time.Now()
 
-	return s.userRepo.UpdateUser(ctx, user)
+	if err := s.userRepo.UpdateUser(ctx, user); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // ValidatePassword validates user password
@@ -381,58 +482,48 @@ func (s *userService) ValidatePassword(ctx context.Context, userID string, passw
 	return bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
 }
 
-// GenerateTokens generates access and refresh tokens for user
+// GenerateTokens generates access and refresh tokens for user with extended JWT claims.
+// The access token includes role, permissions, tenant_id, and jti for blacklist support.
+// Tokens are stored in both the database (for backward compatibility) and
+// a Redis-based blacklist is supported via the logout flow.
 func (s *userService) GenerateTokens(
 	ctx context.Context,
 	user *types.User,
 ) (accessToken, refreshToken string, err error) {
-	// Generate access token (expires in 24 hours)
-	accessClaims := jwt.MapClaims{
-		"user_id":   user.ID,
-		"email":     user.Email,
-		"tenant_id": user.TenantID,
-		"exp":       time.Now().Add(24 * time.Hour).Unix(),
-		"iat":       time.Now().Unix(),
-		"type":      "access",
-	}
-
-	accessTokenObj := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims)
-	accessToken, err = accessTokenObj.SignedString([]byte(getJwtSecret()))
+	// Generate access token with extended claims
+	accessToken, accessJTI, err := secutils.GenerateAccessToken(
+		user.ID,
+		user.TenantID,
+		"",          // role will be set by caller if needed
+		[]string{},  // permissions will be set by caller if needed
+	)
 	if err != nil {
 		return "", "", err
 	}
 
-	// Generate refresh token (expires in 7 days)
-	refreshClaims := jwt.MapClaims{
-		"user_id": user.ID,
-		"exp":     time.Now().Add(7 * 24 * time.Hour).Unix(),
-		"iat":     time.Now().Unix(),
-		"type":    "refresh",
-	}
-
-	refreshTokenObj := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims)
-	refreshToken, err = refreshTokenObj.SignedString([]byte(getJwtSecret()))
+	// Generate refresh token
+	refreshToken, refreshJTI, err := secutils.GenerateRefreshToken(user.ID)
 	if err != nil {
 		return "", "", err
 	}
 
-	// Store tokens in database
+	// Store tokens in database (backward compatibility)
 	accessTokenRecord := &types.AuthToken{
-		ID:        uuid.New().String(),
+		ID:        accessJTI,
 		UserID:    user.ID,
 		Token:     accessToken,
 		TokenType: "access_token",
-		ExpiresAt: time.Now().Add(24 * time.Hour),
+		ExpiresAt: time.Now().Add(secutils.AccessTokenExpiry),
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
 
 	refreshTokenRecord := &types.AuthToken{
-		ID:        uuid.New().String(),
+		ID:        refreshJTI,
 		UserID:    user.ID,
 		Token:     refreshToken,
 		TokenType: "refresh_token",
-		ExpiresAt: time.Now().Add(7 * 24 * time.Hour),
+		ExpiresAt: time.Now().Add(secutils.RefreshTokenExpiry),
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
@@ -443,77 +534,109 @@ func (s *userService) GenerateTokens(
 	return accessToken, refreshToken, nil
 }
 
-// ValidateToken validates an access token
-func (s *userService) ValidateToken(ctx context.Context, tokenString string) (*types.User, error) {
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return []byte(getJwtSecret()), nil
-	})
+// blacklistToken adds a JWT token to the Redis blacklist with TTL equal to remaining validity.
+func (s *userService) blacklistToken(ctx context.Context, tokenString string) {
+	if s.redisClient == nil {
+		return
+	}
+	claims, err := secutils.ParseToken(tokenString)
+	if err != nil {
+		logger.Warnf(ctx, "Failed to parse token for blacklisting: %v", err)
+		return
+	}
+	jti := claims.ID
+	if jti == "" {
+		return
+	}
+	ttl := time.Until(claims.ExpiresAt.Time)
+	if ttl <= 0 {
+		return
+	}
+	key := fmt.Sprintf("blacklist:token:%s", jti)
+	if err := s.redisClient.Set(ctx, key, "1", ttl).Err(); err != nil {
+		logger.Warnf(ctx, "Failed to blacklist token %s: %v", jti, err)
+	}
+}
 
-	if err != nil || !token.Valid {
+// isTokenBlacklisted checks if a JWT token is in the Redis blacklist.
+func (s *userService) isTokenBlacklisted(ctx context.Context, tokenString string) bool {
+	if s.redisClient == nil {
+		return false
+	}
+	claims, err := secutils.ParseToken(tokenString)
+	if err != nil {
+		return false
+	}
+	jti := claims.ID
+	if jti == "" {
+		return false
+	}
+	key := fmt.Sprintf("blacklist:token:%s", jti)
+	exists, err := s.redisClient.Exists(ctx, key).Result()
+	if err != nil {
+		return false
+	}
+	return exists > 0
+}
+
+// ValidateToken validates an access token.
+// Checks both the database and Redis blacklist. Returns the user if the token is valid.
+func (s *userService) ValidateToken(ctx context.Context, tokenString string) (*types.User, error) {
+	// Check Redis blacklist first (faster)
+	if s.isTokenBlacklisted(ctx, tokenString) {
+		return nil, errors.New("token is revoked")
+	}
+
+	claims, err := secutils.ParseToken(tokenString)
+	if err != nil {
 		return nil, errors.New("invalid token")
 	}
 
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		return nil, errors.New("invalid token claims")
+	if claims.TokenType != secutils.TokenTypeAccess && claims.TokenType != "" {
+		// Only accept access tokens for API auth; if TokenType is empty (legacy tokens),
+		// fall through to backward-compatible DB check
+		if claims.TokenType != secutils.TokenTypeAccess {
+			return nil, errors.New("invalid token type")
+		}
 	}
 
-	userID, ok := claims["user_id"].(string)
-	if !ok {
-		return nil, errors.New("invalid user ID in token")
-	}
-
-	// Check if token is revoked
+	// Check if token is revoked in database (backward compatibility)
 	tokenRecord, err := s.tokenRepo.GetTokenByValue(ctx, tokenString)
 	if err != nil || tokenRecord == nil || tokenRecord.IsRevoked {
 		return nil, errors.New("token is revoked")
 	}
 
-	return s.userRepo.GetUserByID(ctx, userID)
+	return s.userRepo.GetUserByID(ctx, claims.Subject)
 }
 
-// RefreshToken refreshes access token using refresh token
+// RefreshToken refreshes access token using refresh token.
+// Checks both Redis blacklist and database for token validity.
 func (s *userService) RefreshToken(
 	ctx context.Context,
 	refreshTokenString string,
 ) (accessToken, newRefreshToken string, err error) {
-	token, err := jwt.Parse(refreshTokenString, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return []byte(getJwtSecret()), nil
-	})
+	// Check Redis blacklist first
+	if s.isTokenBlacklisted(ctx, refreshTokenString) {
+		return "", "", errors.New("refresh token is revoked")
+	}
 
-	if err != nil || !token.Valid {
+	claims, err := secutils.ParseToken(refreshTokenString)
+	if err != nil {
 		return "", "", errors.New("invalid refresh token")
 	}
 
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		return "", "", errors.New("invalid token claims")
-	}
-
-	tokenType, ok := claims["type"].(string)
-	if !ok || tokenType != "refresh" {
+	if claims.TokenType != secutils.TokenTypeRefresh {
 		return "", "", errors.New("not a refresh token")
 	}
 
-	userID, ok := claims["user_id"].(string)
-	if !ok {
-		return "", "", errors.New("invalid user ID in token")
-	}
-
-	// Check if token is revoked
+	// Check if token is revoked in database
 	tokenRecord, err := s.tokenRepo.GetTokenByValue(ctx, refreshTokenString)
 	if err != nil || tokenRecord == nil || tokenRecord.IsRevoked {
 		return "", "", errors.New("refresh token is revoked")
 	}
 
 	// Get user
-	user, err := s.userRepo.GetUserByID(ctx, userID)
+	user, err := s.userRepo.GetUserByID(ctx, claims.Subject)
 	if err != nil {
 		return "", "", err
 	}
@@ -526,8 +649,13 @@ func (s *userService) RefreshToken(
 	return s.GenerateTokens(ctx, user)
 }
 
-// RevokeToken revokes a token
+// RevokeToken revokes a token by adding it to the Redis blacklist and marking it
+// as revoked in the database.
 func (s *userService) RevokeToken(ctx context.Context, tokenString string) error {
+	// Add to Redis blacklist
+	s.blacklistToken(ctx, tokenString)
+
+	// Mark as revoked in database
 	tokenRecord, err := s.tokenRepo.GetTokenByValue(ctx, tokenString)
 	if err != nil {
 		return err

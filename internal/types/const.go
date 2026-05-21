@@ -16,6 +16,10 @@ const (
 	UserContextKey ContextKey = "User"
 	// UserIDContextKey is the context key for user ID
 	UserIDContextKey ContextKey = "UserID"
+	// RoleContextKey is the context key for user's role within the current tenant
+	RoleContextKey ContextKey = "Role"
+	// PermissionsContextKey is the context key for user's permission list
+	PermissionsContextKey ContextKey = "Permissions"
 	// SessionTenantIDContextKey is the context key for session owner's tenant ID.
 	// When set (e.g. in pipeline with shared agent), session/message lookups use this instead of TenantIDContextKey.
 	SessionTenantIDContextKey ContextKey = "SessionTenantID"

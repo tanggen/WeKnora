@@ -54,6 +54,10 @@ type UserRepository interface {
 	GetUserByID(ctx context.Context, id string) (*types.User, error)
 	// GetUserByEmail gets a user by email
 	GetUserByEmail(ctx context.Context, email string) (*types.User, error)
+	// GetUserByPhone gets a user by phone number
+	GetUserByPhone(ctx context.Context, phone string) (*types.User, error)
+	// FindByAccount finds a user by smart account routing (email/phone/username)
+	FindByAccount(ctx context.Context, account string) (*types.User, error)
 	// GetUserByUsername gets a user by username
 	GetUserByUsername(ctx context.Context, username string) (*types.User, error)
 	// GetUserByTenantID gets the first user (owner) of a tenant

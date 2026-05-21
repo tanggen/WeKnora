@@ -40,6 +40,7 @@ type sessionService struct {
 	webSearchProviderRepo interfaces.WebSearchProviderRepository // Repository for web search provider entities
 	kbShareService        interfaces.KBShareService              // Service for KB sharing operations
 	memoryService         interfaces.MemoryService               // Service for memory operations
+	statsRepo            interfaces.TenantStatsRepository       // Repository for tenant statistics
 }
 
 // NewSessionService creates a new session service instance with all required dependencies
@@ -58,6 +59,7 @@ func NewSessionService(cfg *config.Config,
 	webSearchProviderRepo interfaces.WebSearchProviderRepository,
 	kbShareService interfaces.KBShareService,
 	memoryService interfaces.MemoryService,
+	statsRepo interfaces.TenantStatsRepository,
 ) interfaces.SessionService {
 	return &sessionService{
 		cfg:                   cfg,
@@ -75,6 +77,7 @@ func NewSessionService(cfg *config.Config,
 		webSearchProviderRepo: webSearchProviderRepo,
 		kbShareService:        kbShareService,
 		memoryService:         memoryService,
+		statsRepo:             statsRepo,
 	}
 }
 
@@ -94,6 +97,11 @@ func (s *sessionService) CreateSession(ctx context.Context, session *types.Sessi
 	createdSession, err := s.sessionRepo.Create(ctx, session)
 	if err != nil {
 		return nil, err
+	}
+
+	// Increment session count
+	if err := s.statsRepo.IncrementSessionCount(ctx, session.TenantID, 1); err != nil {
+		logger.Warnf(ctx, "Failed to increment session count: %v", err)
 	}
 
 	logger.Infof(ctx, "Session created successfully, ID: %s, tenant ID: %d", createdSession.ID, createdSession.TenantID)

@@ -81,6 +81,12 @@ type Tenant struct {
 	APIKey string `yaml:"api_key"             json:"api_key"`
 	// Status
 	Status string `yaml:"status"              json:"status"              gorm:"default:'active'"`
+	// Whether this tenant is the system tenant (ID=1, immutable)
+	IsSystem bool `yaml:"is_system"          json:"is_system"          gorm:"default:false"`
+	// Plan ID (references plans.id)
+	PlanID string `yaml:"plan_id"             json:"plan_id"             gorm:"type:varchar(32);default:'trial'"`
+	// Trial expiry time (NULL for non-trial plans)
+	TrialExpiresAt *time.Time `yaml:"trial_expires_at"    json:"trial_expires_at"`
 	// Retriever engines
 	RetrieverEngines RetrieverEngines `yaml:"retriever_engines"   json:"retriever_engines"   gorm:"type:json"`
 	// Business
