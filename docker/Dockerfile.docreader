@@ -4,9 +4,15 @@
 FROM python:3.10-slim AS builder
 
 ARG APT_MIRROR=""
+# Debian Bookworm+ 使用 DEB822 格式 (debian.sources)，旧版本使用 sources.list
 RUN if [ -n "$APT_MIRROR" ]; then \
-        sed -i "s@http://deb.debian.org@${APT_MIRROR}@g" /etc/apt/sources.list && \
-        sed -i "s@http://security.debian.org@${APT_MIRROR}@g" /etc/apt/sources.list; \
+        if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+            sed -i "s@http://deb.debian.org@${APT_MIRROR}@g" /etc/apt/sources.list.d/debian.sources && \
+            sed -i "s@http://security.debian.org@${APT_MIRROR}@g" /etc/apt/sources.list.d/debian.sources; \
+        elif [ -f /etc/apt/sources.list ]; then \
+            sed -i "s@http://deb.debian.org@${APT_MIRROR}@g" /etc/apt/sources.list && \
+            sed -i "s@http://security.debian.org@${APT_MIRROR}@g" /etc/apt/sources.list; \
+        fi; \
     fi
 
 WORKDIR /app
@@ -87,9 +93,15 @@ RUN chmod +x docreader/scripts/generate_proto.sh && \
 FROM python:3.10-slim AS runner
 
 ARG APT_MIRROR=""
+# Debian Bookworm+ 使用 DEB822 格式 (debian.sources)，旧版本使用 sources.list
 RUN if [ -n "$APT_MIRROR" ]; then \
-        sed -i "s@http://deb.debian.org@${APT_MIRROR}@g" /etc/apt/sources.list && \
-        sed -i "s@http://security.debian.org@${APT_MIRROR}@g" /etc/apt/sources.list; \
+        if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+            sed -i "s@http://deb.debian.org@${APT_MIRROR}@g" /etc/apt/sources.list.d/debian.sources && \
+            sed -i "s@http://security.debian.org@${APT_MIRROR}@g" /etc/apt/sources.list.d/debian.sources; \
+        elif [ -f /etc/apt/sources.list ]; then \
+            sed -i "s@http://deb.debian.org@${APT_MIRROR}@g" /etc/apt/sources.list && \
+            sed -i "s@http://security.debian.org@${APT_MIRROR}@g" /etc/apt/sources.list; \
+        fi; \
     fi
 
 WORKDIR /app
