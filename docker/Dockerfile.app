@@ -16,9 +16,9 @@ ENV GOPROXY=${GOPROXY_ARG}
 ENV GOSUMDB=${GOSUMDB_ARG}
 
 # Install dependencies
-RUN MIRROR=${APT_MIRROR:-$APK_MIRROR_ARG}; \
+RUN MIRROR=${APT_MIRROR:-}; \
     if [ -n "$MIRROR" ]; then \
-        sed -i "s@deb.debian.org@${MIRROR}@g" /etc/apt/sources.list.d/debian.sources; \
+        sed -i "s@http://deb.debian.org@${MIRROR}@g" /etc/apt/sources.list.d/debian.sources; \
     fi && \
     apt-get update && \
     apt-get install -y git build-essential libsqlite3-dev
@@ -61,9 +61,9 @@ ARG APT_MIRROR
 RUN useradd -m -s /bin/bash appuser
 
 # Apply apt mirror FIRST (for all subsequent apt-get operations)
-RUN MIRROR=${APT_MIRROR:-$APK_MIRROR_ARG}; \
+RUN MIRROR=${APT_MIRROR:-}; \
     if [ -n "$MIRROR" ]; then \
-        sed -i "s@deb.debian.org@${MIRROR}@g" /etc/apt/sources.list.d/debian.sources; \
+        sed -i "s@http://deb.debian.org@${MIRROR}@g" /etc/apt/sources.list.d/debian.sources; \
     fi
 
 # Install ca-certificates and other packages (all using mirror if configured)
