@@ -27,6 +27,7 @@ services:
       context: ./frontend
       args:
         - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB:-50}
+        - NPM_REGISTRY=${NPM_REGISTRY:-}
     container_name: WeKnora-frontend
     ports:
       - "${FRONTEND_PORT:-80}:80"
@@ -49,6 +50,8 @@ services:
       dockerfile: docker/Dockerfile.app
       args:
         - APK_MIRROR_ARG=${APK_MIRROR_ARG:-}
+        - APT_MIRROR=${APT_MIRROR:-}
+        - GOPROXY_ARG=${GOPROXY_ARG:-}
     container_name: WeKnora-app
     ports:
       - "${APP_PORT:-8080}:8080"
@@ -169,6 +172,7 @@ services:
       dockerfile: docker/Dockerfile.docreader
       args:
         - APT_MIRROR=${APT_MIRROR:-}
+        - UV_INDEX_URL=${UV_INDEX_URL:-}
     container_name: WeKnora-docreader
     ports:
       - "${DOCREADER_PORT:-50051}:50051"

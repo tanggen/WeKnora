@@ -8,6 +8,7 @@ ARG GOPRIVATE_ARG
 ARG GOPROXY_ARG
 ARG GOSUMDB_ARG=off
 ARG APK_MIRROR_ARG
+ARG APT_MIRROR
 
 # 设置Go环境变量
 ENV GOPRIVATE=${GOPRIVATE_ARG}
@@ -15,8 +16,9 @@ ENV GOPROXY=${GOPROXY_ARG}
 ENV GOSUMDB=${GOSUMDB_ARG}
 
 # Install dependencies
-RUN if [ -n "$APK_MIRROR_ARG" ]; then \
-        sed -i "s@deb.debian.org@${APK_MIRROR_ARG}@g" /etc/apt/sources.list.d/debian.sources; \
+RUN MIRROR=${APT_MIRROR:-$APK_MIRROR_ARG}; \
+    if [ -n "$MIRROR" ]; then \
+        sed -i "s@deb.debian.org@${MIRROR}@g" /etc/apt/sources.list.d/debian.sources; \
     fi && \
     apt-get update && \
     apt-get install -y git build-essential libsqlite3-dev
@@ -53,20 +55,23 @@ FROM debian:12.12-slim
 WORKDIR /app
 
 ARG APK_MIRROR_ARG
+ARG APT_MIRROR
 
 # Create a non-root user first
 RUN useradd -m -s /bin/bash appuser
 
-# First, install ca-certificates without mirror to ensure HTTPS works
+# Apply apt mirror FIRST (for all subsequent apt-get operations)
+RUN MIRROR=${APT_MIRROR:-$APK_MIRROR_ARG}; \
+    if [ -n "$MIRROR" ]; then \
+        sed -i "s@deb.debian.org@${MIRROR}@g" /etc/apt/sources.list.d/debian.sources; \
+    fi
+
+# Install ca-certificates and other packages (all using mirror if configured)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-# Then switch to mirror if specified and install other packages
-RUN if [ -n "$APK_MIRROR_ARG" ]; then \
-        sed -i "s@deb.debian.org@${APK_MIRROR_ARG}@g" /etc/apt/sources.list.d/debian.sources; \
-    fi && \
-    apt-get update && \
+RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         build-essential postgresql-client default-mysql-client tzdata sed curl bash vim wget \
         libsqlite3-0 \

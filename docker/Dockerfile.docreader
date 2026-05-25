@@ -72,7 +72,8 @@ RUN if [ -z "$TARGETARCH" ]; then \
 
 # 复制依赖文件（使用阿里云 PyPI 镜像加速）
 COPY docreader/pyproject.toml ./
-ENV UV_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+ARG UV_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+ENV UV_INDEX_URL=${UV_INDEX_URL}
 RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ && \
     pip config set global.trusted-host mirrors.aliyun.com && \
     pip install --upgrade pip setuptools wheel --default-timeout=100 --retries 5 && \

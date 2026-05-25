@@ -11,8 +11,15 @@ ENV VITE_IS_DOCKER=true
 COPY package*.json ./
 COPY packages/xlsx-0.20.2.tgz ./packages/xlsx-0.20.2.tgz
 
+# npm/pnpm 镜像源（国内加速）
+ARG NPM_REGISTRY
+
 # 安装依赖（pnpm 9 无构建脚本审批限制）
 RUN corepack enable && corepack prepare pnpm@9 --activate
+RUN if [ -n "$NPM_REGISTRY" ]; then \
+        npm config set registry "$NPM_REGISTRY" && \
+        pnpm config set registry "$NPM_REGISTRY"; \
+    fi
 RUN pnpm install
 
 # 复制项目文件

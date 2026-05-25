@@ -138,6 +138,8 @@ build_app_image() {
         --build-arg GOPRIVATE_ARG=${GOPRIVATE:-""} \
         --build-arg GOPROXY_ARG=${GOPROXY:-"https://goproxy.cn,direct"} \
         --build-arg GOSUMDB_ARG=${GOSUMDB:-"off"} \
+        --build-arg APK_MIRROR_ARG=${APK_MIRROR_ARG:-} \
+        --build-arg APT_MIRROR=${APT_MIRROR:-} \
         --build-arg VERSION_ARG="$VERSION" \
         --build-arg COMMIT_ID_ARG="$COMMIT_ID" \
         --build-arg BUILD_TIME_ARG="$BUILD_TIME" \
@@ -187,6 +189,7 @@ build_frontend_image() {
     
     docker build \
         --platform $PLATFORM \
+        --build-arg NPM_REGISTRY=${NPM_REGISTRY:-} \
         -f frontend/Dockerfile \
         -t wechatopenai/weknora-ui:latest \
         frontend/
