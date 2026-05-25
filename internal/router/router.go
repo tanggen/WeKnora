@@ -392,10 +392,10 @@ func RegisterTenantRoutes(r *gin.RouterGroup, handler *handler.TenantHandler) {
 	tenantRoutes := r.Group("/tenants")
 	{
 		tenantRoutes.POST("", handler.CreateTenant)
-		tenantRoutes.GET("/:id", handler.GetTenant)
-		tenantRoutes.PUT("/:id", handler.UpdateTenant)
-		tenantRoutes.DELETE("/:id", handler.DeleteTenant)
-		tenantRoutes.POST("/:id/api-key", handler.ResetAPIKey)
+		tenantRoutes.GET("/:tenant_id", handler.GetTenant)
+		tenantRoutes.PUT("/:tenant_id", handler.UpdateTenant)
+		tenantRoutes.DELETE("/:tenant_id", handler.DeleteTenant)
+		tenantRoutes.POST("/:tenant_id/api-key", handler.ResetAPIKey)
 		tenantRoutes.GET("", handler.ListTenants)
 
 		// Generic KV configuration management (tenant-level)
@@ -969,8 +969,8 @@ func RegisterTenantUserRoutes(r *gin.RouterGroup, handler *handler.TenantUserHan
 	if handler == nil {
 		return
 	}
-	// Tenant user routes under /tenants/:tid/users
-	tenantUsers := r.Group("/tenants/:tid/users")
+	// Tenant user routes under /tenants/:tenant_id/users
+	tenantUsers := r.Group("/tenants/:tenant_id/users")
 	{
 		tenantUsers.GET("", handler.ListUsers)
 		tenantUsers.POST("", handler.CreateUser)

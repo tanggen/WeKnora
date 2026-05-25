@@ -135,9 +135,9 @@ func (h *TenantHandler) CreateTenant(c *gin.Context) {
 func (h *TenantHandler) GetTenant(c *gin.Context) {
 	ctx := c.Request.Context()
 
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	id, err := strconv.ParseUint(c.Param("tenant_id"), 10, 64)
 	if err != nil {
-		logger.Errorf(ctx, "Invalid tenant ID: %s", secutils.SanitizeForLog(c.Param("id")))
+		logger.Errorf(ctx, "Invalid tenant ID: %s", secutils.SanitizeForLog(c.Param("tenant_id")))
 		c.Error(errors.NewBadRequestError("Invalid tenant ID"))
 		return
 	}
@@ -181,9 +181,9 @@ func (h *TenantHandler) UpdateTenant(c *gin.Context) {
 
 	logger.Info(ctx, "Start updating tenant")
 
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	id, err := strconv.ParseUint(c.Param("tenant_id"), 10, 64)
 	if err != nil {
-		logger.Errorf(ctx, "Invalid tenant ID: %s", secutils.SanitizeForLog(c.Param("id")))
+		logger.Errorf(ctx, "Invalid tenant ID: %s", secutils.SanitizeForLog(c.Param("tenant_id")))
 		c.Error(errors.NewBadRequestError("Invalid tenant ID"))
 		return
 	}
@@ -241,9 +241,9 @@ func (h *TenantHandler) UpdateTenant(c *gin.Context) {
 func (h *TenantHandler) ResetAPIKey(c *gin.Context) {
 	ctx := c.Request.Context()
 
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	id, err := strconv.ParseUint(c.Param("tenant_id"), 10, 64)
 	if err != nil {
-		logger.Errorf(ctx, "Invalid tenant ID: %s", secutils.SanitizeForLog(c.Param("id")))
+		logger.Errorf(ctx, "Invalid tenant ID: %s", secutils.SanitizeForLog(c.Param("tenant_id")))
 		c.Error(errors.NewBadRequestError("Invalid tenant ID"))
 		return
 	}
@@ -290,9 +290,9 @@ func (h *TenantHandler) DeleteTenant(c *gin.Context) {
 
 	logger.Info(ctx, "Start deleting tenant")
 
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	id, err := strconv.ParseUint(c.Param("tenant_id"), 10, 64)
 	if err != nil {
-		logger.Errorf(ctx, "Invalid tenant ID: %s", secutils.SanitizeForLog(c.Param("id")))
+		logger.Errorf(ctx, "Invalid tenant ID: %s", secutils.SanitizeForLog(c.Param("tenant_id")))
 		c.Error(errors.NewBadRequestError("Invalid tenant ID"))
 		return
 	}

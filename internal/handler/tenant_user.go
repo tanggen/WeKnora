@@ -24,7 +24,7 @@ func NewTenantUserHandler(service interfaces.TenantUserService) *TenantUserHandl
 
 // getTenantID extracts tenant ID from URL parameter
 func (h *TenantUserHandler) getTenantID(c *gin.Context) (uint64, error) {
-	id, err := strconv.ParseUint(c.Param("tid"), 10, 64)
+	id, err := strconv.ParseUint(c.Param("tenant_id"), 10, 64)
 	if err != nil {
 		return 0, err
 	}
