@@ -156,7 +156,8 @@ func seedSystemAdmin(ctx context.Context, repo interfaces.UserRepository) error 
 		Username:            systemAdminUsername,
 		Email:               systemAdminEmail,
 		PasswordHash:        passwordHash,
-		PasswordExpired:     true, // First login must change password (HTTP 423)
+		TenantID:            systemTenantID, // FK constraint: must reference an existing tenant
+		PasswordExpired:     true,           // First login must change password (HTTP 423)
 		IsActive:            true,
 		CanAccessAllTenants: true,
 	}
