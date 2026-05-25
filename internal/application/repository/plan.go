@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
@@ -154,8 +153,3 @@ func (r *planRepository) loadConfigs(ctx context.Context, plans []types.Plan) ([
 
 // Ensure planRepository implements PlanRepository
 var _ interfaces.PlanRepository = (*planRepository)(nil)
-
-// escapeLikeKeyword escapes special characters in LIKE patterns
-func escapeLikeKeyword(s string) string {
-	return strings.ReplaceAll(strings.ReplaceAll(s, "%", "\\%"), "_", "\\_")
-}

@@ -209,31 +209,8 @@ func (r *tenantStatsRepository) ListAll(ctx context.Context, keyword string, sor
 
 	// Fetch paginated results
 	offset := (page - 1) * pageSize
-	var rows []struct {
-		TenantID          uint64 `gorm:"column:tenant_id"`
-		TenantName        string `gorm:"column:tenant_name"`
-		PlanName          string `gorm:"column:plan_name"`
-		UserCount         int    `gorm:"column:user_count"`
-		StorageUsedBytes  int64  `gorm:"column:storage_used_bytes"`
-		TokenUsed         int64  `gorm:"column:token_used"`
-		TokenQuotaMonthly int64  `gorm:"column:token_used_monthly"`
-		Status            string `gorm:"column:status"`
-		CreatedAt         string `gorm:"column:created_at"` // Will be scanned as string from SQL
-	}
 
 	// We need to handle the query properly - use raw SQL for complex joins
-	type RowResult struct {
-		TenantID          uint64
-		TenantName        string
-		PlanName          string
-		UserCount         int
-		StorageUsedBytes  int64
-		TokenUsed         int64
-		TokenQuotaMonthly int64
-		IsActive          bool
-		CreatedAt         string
-	}
-
 	// Use a simpler approach with direct table reads
 	// Query tenant_stats with tenant info
 	var tenantStats []types.TenantStats
@@ -285,10 +262,14 @@ func (r *tenantStatsRepository) GetOverview(ctx context.Context) (*types.AdminOv
 	overview := &types.AdminOverviewStats{}
 
 	// Total tenant count
-	r.db.WithContext(ctx).Model(&types.Tenant{}).Count(&overview.TotalTenants)
+	var totalTenants int64
+	r.db.WithContext(ctx).Model(&types.Tenant{}).Count(&totalTenants)
+	overview.TotalTenants = int(totalTenants)
 
 	// Active tenants
-	r.db.WithContext(ctx).Model(&types.Tenant{}).Where("status = ?", "active").Count(&overview.ActiveTenants)
+	var activeTenants int64
+	r.db.WithContext(ctx).Model(&types.Tenant{}).Where("status = ?", "active").Count(&activeTenants)
+	overview.ActiveTenants = int(activeTenants)
 
 	// Sum user counts from tenant_stats
 	r.db.WithContext(ctx).Model(&types.TenantStats{}).
@@ -311,17 +292,21 @@ func (r *tenantStatsRepository) GetOverview(ctx context.Context) (*types.AdminOv
 		Scan(&overview.TotalTokenUsedAllTime)
 
 	// Trials: tenants on trial plan created within last 3 days and still active
+	var trialsActive int64
 	r.db.WithContext(ctx).Model(&types.Tenant{}).
 		Where("plan_id IN (SELECT id FROM plans WHERE is_trial = true)").
 		Where("status = ?", "active").
 		Where("created_at >= NOW() - INTERVAL '3 days'").
-		Count(&overview.TrialsActive)
+		Count(&trialsActive)
+	overview.TrialsActive = int(trialsActive)
 
 	// Trials converted: tenants that were on trial but now on non-trial plans
+	var trialsConverted int64
 	r.db.WithContext(ctx).Model(&types.Tenant{}).
 		Where("plan_id IN (SELECT id FROM plans WHERE is_trial = false)").
 		Where("trial_expires_at IS NOT NULL").
-		Count(&overview.TrialsConverted)
+		Count(&trialsConverted)
+	overview.TrialsConverted = int(trialsConverted)
 
 	return overview, nil
 }
