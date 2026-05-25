@@ -70,8 +70,13 @@ func (s *tenantStatsService) GetAdminTenantStats(
 	if err != nil {
 		return nil, err
 	}
+	// Convert []*AdminTenantStatsItem to []AdminTenantStatsItem
+	data := make([]types.AdminTenantStatsItem, len(items))
+	for i, item := range items {
+		data[i] = *item
+	}
 	return &types.AdminTenantStatsListResponse{
-		Data:     items,
+		Data:     data,
 		Total:    total,
 		Page:     page,
 		PageSize: pageSize,

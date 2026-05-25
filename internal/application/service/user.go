@@ -15,7 +15,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
@@ -179,9 +178,8 @@ func (s *userService) Register(ctx context.Context, req *types.RegisterRequest) 
 			UserID:    user.ID,
 			Role:      types.RoleTenantAdmin,
 			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
 		}
-		if err := s.tenantUserRepo.CreateTenantUser(ctx, tenantUser); err != nil {
+		if err := s.tenantUserRepo.Create(ctx, tenantUser); err != nil {
 			logger.Warnf(ctx, "Failed to create tenant_users row: %v", err)
 		}
 	}
