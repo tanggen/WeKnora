@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Tencent/WeKnora/internal/logger"
@@ -20,6 +21,9 @@ import (
 
 // errRecordNotFound is the GORM error returned when a record is not found.
 var errRecordNotFound = gorm.ErrRecordNotFound
+
+// errTenantNotFound matches the repository's custom "tenant not found" error.
+var errTenantNotFound = errors.New("tenant not found")
 
 // --- Constants ---
 
@@ -88,7 +92,10 @@ func seedSystemTenant(ctx context.Context, repo interfaces.TenantRepository) err
 	}
 
 	// Only proceed if the error is a "not found" error
-	if !errors.Is(err, errRecordNotFound) {
+	// The repository wraps gorm.ErrRecordNotFound as a custom "tenant not found" error,
+	// so we must check both.
+	if !errors.Is(err, errRecordNotFound) && !errors.Is(err, errTenantNotFound) &&
+		!strings.Contains(err.Error(), "not found") {
 		return fmt.Errorf("check system tenant existence: %w", err)
 	}
 
