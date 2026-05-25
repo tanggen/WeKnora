@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
@@ -21,9 +22,6 @@ import (
 
 // errRecordNotFound is the GORM error returned when a record is not found.
 var errRecordNotFound = gorm.ErrRecordNotFound
-
-// errTenantNotFound matches the repository's custom "tenant not found" error.
-var errTenantNotFound = errors.New("tenant not found")
 
 // --- Constants ---
 
@@ -49,10 +47,14 @@ func SeedSystemData(
 	tenantUserRepo interfaces.TenantUserRepository,
 	tenantStatsRepo interfaces.TenantStatsRepository,
 	planRepo interfaces.PlanRepository,
+	db *gorm.DB,
 	redisClient *redis.Client,
 ) error {
 	ctx := context.Background()
 	logger.Infof(ctx, "[Seed] Starting system data initialization...")
+
+	// 0. Safety: ensure required columns exist (defensive fix for missed migrations)
+	ensureRequiredColumns(ctx, db)
 
 	// 1. System tenant (ID=1, is_system=true)
 	if err := seedSystemTenant(ctx, tenantRepo); err != nil {
@@ -94,7 +96,7 @@ func seedSystemTenant(ctx context.Context, repo interfaces.TenantRepository) err
 	// Only proceed if the error is a "not found" error
 	// The repository wraps gorm.ErrRecordNotFound as a custom "tenant not found" error,
 	// so we must check both.
-	if !errors.Is(err, errRecordNotFound) && !errors.Is(err, errTenantNotFound) &&
+	if !errors.Is(err, errRecordNotFound) && !errors.Is(err, repository.ErrTenantNotFound) &&
 		!strings.Contains(err.Error(), "not found") {
 		return fmt.Errorf("check system tenant existence: %w", err)
 	}
@@ -273,4 +275,31 @@ func preloadPlanCache(ctx context.Context, planRepo interfaces.PlanRepository, r
 
 	logger.Infof(ctx, "[Seed] Plan cache preloaded (%d plans) to Redis", len(plans))
 	return nil
+}
+
+// ensureRequiredColumns defensively adds columns that the seed code depends on.
+// This protects against migration 000080 (and future migrations) being skipped
+// or failing silently at startup. All statements use IF NOT EXISTS, so they are idempotent.
+func ensureRequiredColumns(ctx context.Context, db *gorm.DB) {
+	stmts := []struct {
+		desc string
+		sql  string
+	}{
+		{
+			desc: "tenants.is_system",
+			sql:  "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS is_system BOOLEAN NOT NULL DEFAULT FALSE",
+		},
+		{
+			desc: "users.can_access_all_tenants",
+			sql:  "ALTER TABLE users ADD COLUMN IF NOT EXISTS can_access_all_tenants BOOLEAN NOT NULL DEFAULT FALSE",
+		},
+	}
+
+	for _, s := range stmts {
+		if err := db.Exec(s.sql).Error; err != nil {
+			logger.Warnf(ctx, "[Seed] Failed to ensure column %s: %v", s.desc, err)
+		} else {
+			logger.Debugf(ctx, "[Seed] Column %s ensured", s.desc)
+		}
+	}
 }
