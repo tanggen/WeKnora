@@ -108,9 +108,15 @@
     </div>
 
     <!-- 租户详情侧边栏 -->
-    <Transition name="drawer">
+    <Transition
+      @before-enter="onDrawerBeforeEnter"
+      @enter="onDrawerEnter"
+      @after-enter="onDrawerAfterEnter"
+      @before-leave="onDrawerBeforeLeave"
+      @leave="onDrawerLeave"
+    >
       <div v-if="detailVisible && detailTenant" class="detail-drawer-overlay" @click.self="closeDetail">
-        <div class="detail-drawer">
+        <div ref="drawerPanelRef" class="detail-drawer">
           <div class="drawer-header">
             <h3 class="drawer-title">{{ detailTenant.name }}</h3>
             <button class="drawer-close" @click="closeDetail" :aria-label="$t('common.close')">
@@ -225,7 +231,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
@@ -349,8 +355,8 @@ function handlePageChange(pageInfo: { current: number; pageSize: number }) {
   fetchTenants()
 }
 
-function handleRowClick(row: AdminTenantListItem) {
-  openDetail(row)
+function handleRowClick(context: { row: AdminTenantListItem }) {
+  openDetail(context.row)
 }
 
 async function openDetail(row: AdminTenantListItem) {
@@ -374,6 +380,65 @@ function closeDetail() {
   detailVisible.value = false
   detailTenant.value = null
   detailData.value = null
+}
+
+// Drawer animation hooks
+const drawerPanelRef = ref<HTMLElement | null>(null)
+
+function onDrawerBeforeEnter(el: Element) {
+  const overlay = el as HTMLElement
+  const panel = drawerPanelRef.value
+  overlay.style.opacity = '0'
+  if (panel) {
+    panel.style.transform = 'translateX(100%)'
+  }
+}
+
+function onDrawerEnter(el: Element, done: () => void) {
+  const overlay = el as HTMLElement
+  const panel = drawerPanelRef.value
+  // Force reflow to ensure initial state is painted
+  overlay.offsetHeight
+  overlay.style.transition = 'opacity 0.25s ease'
+  overlay.style.opacity = '1'
+  if (panel) {
+    panel.style.transition = 'transform 0.3s ease'
+    panel.style.transform = 'translateX(0)'
+  }
+  const onFinish = () => {
+    overlay.style.transition = ''
+    if (panel) panel.style.transition = ''
+    overlay.removeEventListener('transitionend', onFinish)
+    done()
+  }
+  overlay.addEventListener('transitionend', onFinish)
+}
+
+function onDrawerAfterEnter(_el: Element) {
+  // Cleanup
+}
+
+function onDrawerBeforeLeave(el: Element) {
+  const overlay = el as HTMLElement
+  const panel = drawerPanelRef.value
+  overlay.style.transition = 'opacity 0.2s ease'
+  overlay.style.opacity = '0'
+  if (panel) {
+    panel.style.transition = 'transform 0.25s ease'
+    panel.style.transform = 'translateX(100%)'
+  }
+}
+
+function onDrawerLeave(el: Element, done: () => void) {
+  const overlay = el as HTMLElement
+  const panel = drawerPanelRef.value
+  const onFinish = () => {
+    overlay.style.transition = ''
+    if (panel) panel.style.transition = ''
+    overlay.removeEventListener('transitionend', onFinish)
+    done()
+  }
+  overlay.addEventListener('transitionend', onFinish)
 }
 
 function openEditDialog(row: AdminTenantListItem) {
@@ -517,6 +582,7 @@ onMounted(() => {
   box-shadow: -4px 0 16px rgba(0, 0, 0, 0.08);
   display: flex;
   flex-direction: column;
+  will-change: transform;
 }
 
 .drawer-header {
@@ -666,21 +732,5 @@ onMounted(() => {
 .empty-txt {
   font-size: 14px;
   color: var(--td-text-color-secondary);
-}
-
-/* Drawer transition */
-.drawer-enter-active,
-.drawer-leave-active {
-  transition: opacity 0.2s ease;
-  .detail-drawer {
-    transition: transform 0.25s ease;
-  }
-}
-.drawer-enter-from,
-.drawer-leave-to {
-  opacity: 0;
-  .detail-drawer {
-    transform: translateX(100%);
-  }
 }
 </style>
