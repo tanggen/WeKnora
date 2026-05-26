@@ -34,6 +34,13 @@ export const useMenuStore = defineStore('menuStore', () => {
     { title: '', titleKey: 'menu.logout', icon: 'logout', path: 'logout' }
   ])
 
+  // 管理后台导航项（仅系统管理员可见）
+  const adminMenuItems = reactive<MenuItem[]>([
+    { title: '', titleKey: 'menu.adminDashboard', icon: 'admin-dashboard', path: 'admin' },
+    { title: '', titleKey: 'menu.adminTenants', icon: 'admin-tenants', path: 'admin/tenants' },
+    { title: '', titleKey: 'menu.adminPlans', icon: 'admin-plans', path: 'admin/plans' },
+  ])
+
   const isFirstSession = ref(false)
   const firstQuery = ref('')
   const firstMentionedItems = ref<any[]>([])
@@ -44,6 +51,11 @@ export const useMenuStore = defineStore('menuStore', () => {
 
   const applyMenuTranslations = () => {
     menuArr.forEach(item => {
+      if (item.titleKey) {
+        item.title = i18n.global.t(item.titleKey)
+      }
+    })
+    adminMenuItems.forEach(item => {
       if (item.titleKey) {
         item.title = i18n.global.t(item.titleKey)
       }
@@ -132,6 +144,7 @@ export const useMenuStore = defineStore('menuStore', () => {
   return {
     menuArr,
     visibleMenuArr,
+    adminMenuItems,
     isFirstSession,
     firstQuery,
     firstMentionedItems,

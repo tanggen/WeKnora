@@ -129,6 +129,28 @@
         </div>
         
         
+        <!-- 管理后台导航（仅系统管理员可见） -->
+        <div v-if="showAdminMenu" class="menu_admin">
+            <div class="menu_admin_label" v-if="!uiStore.sidebarCollapsed">
+                <span>{{ $t('menu.admin') }}</span>
+            </div>
+            <div class="menu_box" v-for="(item, index) in adminMenuItems" :key="'admin-' + index">
+                <t-tooltip :content="item.title" placement="right" :disabled="!uiStore.sidebarCollapsed">
+                <div @click="handleAdminMenuClick(item.path)"
+                     :class="['menu_item', isAdminItemActive(item.path) ? 'menu_item_active' : '']">
+                    <div class="menu_item-box">
+                        <div class="menu_icon">
+                            <t-icon :name="adminIconMap[item.path] || 'secured'" class="icon admin-icon" />
+                        </div>
+                        <template v-if="!uiStore.sidebarCollapsed">
+                            <span class="menu_title" :title="item.title">{{ item.title }}</span>
+                        </template>
+                    </div>
+                </div>
+                </t-tooltip>
+            </div>
+        </div>
+        
         <!-- 下半部分：用户菜单 -->
         <div class="menu_bottom">
             <UserMenu />
@@ -192,7 +214,7 @@ const submenuscrollContainer = ref(null);
 const totalPages = computed(() => Math.ceil(total.value / page_size.value));
 const hasMore = computed(() => currentPage.value < totalPages.value);
 type MenuItem = { title: string; icon: string; path: string; childrenPath?: string; children?: any[] };
-const { menuArr, visibleMenuArr } = storeToRefs(usemenuStore);
+const { menuArr, visibleMenuArr, adminMenuItems } = storeToRefs(usemenuStore);
 let activeSubmenu = ref<string>('');
 const isLiteEdition = ref(false);
 
@@ -221,6 +243,42 @@ const batchDisplayCount = computed(() =>
 
 // 是否可以访问所有租户
 const canAccessAllTenants = computed(() => authStore.canAccessAllTenants);
+
+// 管理后台菜单是否可见
+const showAdminMenu = computed(() => canAccessAllTenants.value);
+
+// 管理后台菜单项激活状态
+const isAdminItemActive = (path: string): boolean => {
+  const currentRoute = route.name as string;
+  switch (path) {
+    case 'admin':
+      return currentRoute === 'adminDashboard';
+    case 'admin/tenants':
+      return currentRoute === 'adminTenants';
+    case 'admin/plans':
+      return currentRoute === 'adminPlans';
+    default:
+      return false;
+  }
+};
+
+// 是否在管理后台区域
+const isInAdminSection = computed(() => {
+  const name = route.name as string;
+  return name === 'adminDashboard' || name === 'adminTenants' || name === 'adminPlans';
+});
+
+// 管理后台图标名称映射（TDesign icons）
+const adminIconMap: Record<string, string> = {
+  'admin': 'secured',
+  'admin/tenants': 'usergroup',
+  'admin/plans': 'root-list',
+};
+
+// 处理管理后台菜单点击
+const handleAdminMenuClick = (path: string) => {
+  router.push(`/platform/${path}`);
+};
 
 // 是否处于知识库详情页（不包括全局聊天）
 const isInKnowledgeBase = computed<boolean>(() => {
@@ -901,6 +959,10 @@ const onDragHandleMouseDown = (e: MouseEvent) => {
         .menu_bottom {
             align-items: center;
         }
+
+        .menu_admin {
+            align-items: center;
+        }
     }
 
     .logo_row {
@@ -997,6 +1059,30 @@ const onDragHandleMouseDown = (e: MouseEvent) => {
         flex-shrink: 0;
         display: flex;
         flex-direction: column;
+    }
+
+    .menu_admin {
+        flex-shrink: 0;
+        display: flex;
+        flex-direction: column;
+        padding: 4px 0;
+        border-top: 1px solid var(--td-component-stroke);
+        margin-top: 4px;
+        padding-top: 8px;
+    }
+
+    .menu_admin_label {
+        padding: 4px 16px 6px;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--td-text-color-placeholder);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        user-select: none;
+    }
+
+    .admin-icon {
+        font-size: 18px;
     }
 
     .menu_box {
