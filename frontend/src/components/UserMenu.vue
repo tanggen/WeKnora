@@ -67,6 +67,10 @@
           <t-icon name="chevron-right" class="menu-chevron" />
         </div>
         <div class="menu-divider"></div>
+        <div v-if="authStore.canAccessAllTenants" class="menu-item" @click="handleAdminNav">
+          <t-icon name="secured" class="menu-icon" />
+          <span>{{ $t('menu.admin') }}</span>
+        </div>
         <div class="menu-item" @click="handleSettings">
           <t-icon name="setting" class="menu-icon" />
           <span>{{ $t('general.allSettings') }}</span>
@@ -211,6 +215,12 @@ const handleSettings = () => {
   menuVisible.value = false
   uiStore.openSettings()
   router.push('/platform/settings')
+}
+
+// 管理后台
+const handleAdminNav = () => {
+  menuVisible.value = false
+  router.push('/platform/admin')
 }
 
 // Hover-driven submenu controls. A small hide delay tolerates the pointer
