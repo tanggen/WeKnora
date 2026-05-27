@@ -191,6 +191,17 @@ export function setTenantStatus(tenantId: number, status: string): Promise<ApiRe
   return patch(`/api/v1/admin/tenants/${tenantId}/status`, { status }) as Promise<ApiResponse<null>>
 }
 
+export interface CreateTenantRequest {
+  name: string
+  description?: string
+  business?: string
+  plan_id: string
+}
+
+export function createTenant(data: CreateTenantRequest): Promise<ApiResponse<any>> {
+  return post('/api/v1/admin/tenants', data) as Promise<ApiResponse<any>>
+}
+
 export function assignPlan(tenantId: number, planId: string): Promise<ApiResponse<any>> {
   return post(`/api/v1/admin/tenants/${tenantId}/plan`, { plan_id: planId }) as Promise<ApiResponse<any>>
 }

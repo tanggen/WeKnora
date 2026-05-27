@@ -1046,6 +1046,7 @@ func RegisterAdminTenantRoutes(r *gin.RouterGroup, handler *handler.AdminTenantH
 	admin := r.Group("/admin/tenants")
 	{
 		admin.GET("", handler.ListTenants)
+		admin.POST("", handler.CreateTenant)
 		admin.GET("/:tenant_id", handler.GetTenant)
 		admin.PUT("/:tenant_id", handler.UpdateTenant)
 		admin.PATCH("/:tenant_id/status", handler.SetTenantStatus)

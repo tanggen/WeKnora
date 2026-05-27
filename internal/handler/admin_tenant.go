@@ -21,6 +21,42 @@ func NewAdminTenantHandler(adminService *service.AdminService) *AdminTenantHandl
 	return &AdminTenantHandler{adminService: adminService}
 }
 
+// CreateTenantRequest is the request body for creating a new tenant via admin
+type CreateTenantRequest struct {
+	Name        string `json:"name"        binding:"required,max=128"`
+	Description string `json:"description"`
+	Business    string `json:"business"`
+	PlanID      string `json:"plan_id"     binding:"required"`
+}
+
+// CreateTenant creates a new tenant with a selected plan
+func (h *AdminTenantHandler) CreateTenant(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	var req CreateTenantRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(errors.NewValidationError("Invalid request body").WithDetails(err.Error()))
+		return
+	}
+
+	tenant, err := h.adminService.CreateTenant(ctx, &service.CreateTenantRequest{
+		Name:        req.Name,
+		Description: req.Description,
+		Business:    req.Business,
+		PlanID:      req.PlanID,
+	})
+	if err != nil {
+		logger.ErrorWithFields(ctx, err, nil)
+		c.Error(errors.NewInternalServerError("Failed to create tenant").WithDetails(err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"success": true,
+		"data":    tenant,
+	})
+}
+
 // ListTenants returns a paginated list of all tenants with optional filters
 func (h *AdminTenantHandler) ListTenants(c *gin.Context) {
 	ctx := c.Request.Context()

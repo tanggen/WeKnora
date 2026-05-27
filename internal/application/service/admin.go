@@ -21,6 +21,7 @@ type AdminService struct {
 	statsRepo      interfaces.TenantStatsRepository
 	planRepo       interfaces.PlanRepository
 	menuService    *MenuService
+	tenantService  interfaces.TenantService
 }
 
 // NewAdminService creates a new admin service
@@ -31,6 +32,7 @@ func NewAdminService(
 	statsRepo interfaces.TenantStatsRepository,
 	planRepo interfaces.PlanRepository,
 	menuService *MenuService,
+	tenantService interfaces.TenantService,
 ) *AdminService {
 	return &AdminService{
 		tenantRepo:     tenantRepo,
@@ -39,6 +41,7 @@ func NewAdminService(
 		statsRepo:      statsRepo,
 		planRepo:       planRepo,
 		menuService:    menuService,
+		tenantService:  tenantService,
 	}
 }
 
@@ -111,6 +114,14 @@ type TenantDetailStats struct {
 type UpdateTenantRequest struct {
 	Name        string `json:"name"        binding:"omitempty,max=128"`
 	Description string `json:"description"`
+}
+
+// CreateTenantRequest is the request body for creating a new tenant via admin
+type CreateTenantRequest struct {
+	Name        string `json:"name"        binding:"required,max=128"`
+	Description string `json:"description"`
+	Business    string `json:"business"`
+	PlanID      string `json:"plan_id"     binding:"required"`
 }
 
 // SetTenantStatusRequest is the request body for changing tenant status
@@ -266,6 +277,57 @@ func (s *AdminService) UpdateTenant(ctx context.Context, tenantID uint64, req *U
 	}
 
 	return s.tenantRepo.UpdateTenant(ctx, tenant)
+}
+
+// ──────────────────────────────────────────────
+//  Tenant creation (admin only)
+// ──────────────────────────────────────────────
+
+// CreateTenant creates a new tenant with the specified plan (admin only).
+// It validates the plan, creates the tenant via tenantService, and initializes
+// tenant_stats with the plan snapshot.
+func (s *AdminService) CreateTenant(ctx context.Context, req *CreateTenantRequest) (*types.Tenant, error) {
+	// 1. Validate plan exists and is active
+	planWithConfig, err := s.planRepo.GetByID(ctx, req.PlanID)
+	if err != nil {
+		return nil, fmt.Errorf("plan not found: %s", req.PlanID)
+	}
+	if !planWithConfig.Plan.IsActive {
+		return nil, fmt.Errorf("plan not active: %s", req.PlanID)
+	}
+
+	// 2. Build tenant object
+	tenant := &types.Tenant{
+		Name:        req.Name,
+		Description: req.Description,
+		Business:    req.Business,
+		PlanID:      req.PlanID,
+		RetrieverEngines: types.RetrieverEngines{
+			Engines: types.GetDefaultRetrieverEngines(),
+		},
+		StorageQuota: planWithConfig.Config.StorageQuotaBytes,
+	}
+
+	// If trial plan, set expiry
+	if planWithConfig.Plan.IsTrial && planWithConfig.Plan.TrialDays > 0 {
+		expiry := time.Now().AddDate(0, 0, planWithConfig.Plan.TrialDays)
+		tenant.TrialExpiresAt = &expiry
+	}
+
+	// 3. Create tenant (tenantService handles API key generation)
+	createdTenant, err := s.tenantService.CreateTenant(ctx, tenant)
+	if err != nil {
+		return nil, fmt.Errorf("create tenant: %w", err)
+	}
+
+	// 4. Initialize tenant_stats with plan snapshot
+	if err := s.statsRepo.UpdatePlanSnapshot(ctx, createdTenant.ID, req.PlanID, planWithConfig.Config.StorageQuotaBytes); err != nil {
+		logger.Warnf(ctx, "[Admin] Tenant %d created but failed to init tenant_stats plan snapshot: %v", createdTenant.ID, err)
+		// Non-fatal: stats row will be auto-created on first access
+	}
+
+	logger.Infof(ctx, "[Admin] Tenant created: ID=%d, Name=%s, Plan=%s", createdTenant.ID, createdTenant.Name, req.PlanID)
+	return createdTenant, nil
 }
 
 // SetTenantStatus enables or disables a tenant (admin only).

@@ -8,6 +8,10 @@
               <template #icon><t-icon name="chevron-left" size="18px" /></template>
             </t-button>
             <h2>{{ $t('admin.tenants.title') }}</h2>
+            <t-button theme="primary" size="small" @click="openCreateDialog">
+              <template #icon><t-icon name="add" /></template>
+              {{ $t('admin.tenants.createTenant') }}
+            </t-button>
           </div>
           <p class="header-subtitle">{{ $t('admin.tenants.subtitle') }}</p>
         </div>
@@ -227,6 +231,41 @@
         </div>
       </div>
     </t-dialog>
+
+    <!-- 创建租户弹窗 -->
+    <t-dialog
+      v-model:visible="createDialogVisible"
+      :header="$t('admin.tenants.createTenantTitle')"
+      :confirm-on-enter="false"
+      :on-confirm="handleCreateConfirm"
+      width="520px"
+    >
+      <div class="edit-form">
+        <div class="form-item">
+          <label class="form-label">{{ $t('admin.tenants.name') }} *</label>
+          <t-input v-model="createForm.name" :placeholder="$t('admin.tenants.namePlaceholder')" />
+        </div>
+        <div class="form-item">
+          <label class="form-label">{{ $t('admin.tenants.description') }}</label>
+          <t-textarea v-model="createForm.description" :placeholder="$t('admin.tenants.descriptionPlaceholder')" :autosize="{ minRows: 2, maxRows: 4 }" />
+        </div>
+        <div class="form-item">
+          <label class="form-label">{{ $t('admin.tenants.business') }}</label>
+          <t-input v-model="createForm.business" placeholder="e.g. IT, Finance" />
+        </div>
+        <div class="form-item">
+          <label class="form-label">{{ $t('admin.tenants.plan') }} *</label>
+          <t-select v-model="createForm.plan_id" :placeholder="$t('admin.tenants.selectPlan')" filterable>
+            <t-option
+              v-for="plan in activePlans"
+              :key="plan.plan_id"
+              :value="plan.plan_id"
+              :label="plan.name + (plan.is_trial ? ' (' + $t('admin.plans.trial') + ')' : '')"
+            />
+          </t-select>
+        </div>
+      </div>
+    </t-dialog>
   </div>
 </template>
 
@@ -235,8 +274,8 @@ import { ref, reactive, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
-import { listTenants, getTenant, updateTenant, setTenantStatus } from '@/api/admin'
-import type { AdminTenantListItem, AdminTenantDetail } from '@/api/admin'
+import { listTenants, getTenant, updateTenant, setTenantStatus, createTenant, listAllPlans } from '@/api/admin'
+import type { AdminTenantListItem, AdminTenantDetail, PlanWithConfig } from '@/api/admin'
 import { formatStringDate } from '@/utils/index'
 
 const { t } = useI18n()
@@ -279,6 +318,12 @@ const detailData = ref<AdminTenantDetail | null>(null)
 // Edit dialog
 const editDialogVisible = ref(false)
 const editForm = reactive({ name: '', description: '', tenantId: 0 })
+
+// Create dialog
+const createDialogVisible = ref(false)
+const createForm = reactive({ name: '', description: '', business: '', plan_id: '' })
+const plansLoading = ref(false)
+const activePlans = ref<PlanWithConfig[]>([])
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 function debouncedFetch() {
@@ -481,8 +526,63 @@ async function handleSetStatus(status: string) {
   }
 }
 
+// Create dialog
+function resetCreateForm() {
+  createForm.name = ''
+  createForm.description = ''
+  createForm.business = ''
+  createForm.plan_id = ''
+}
+
+async function fetchPlans() {
+  plansLoading.value = true
+  try {
+    const res = await listAllPlans()
+    if (res.success && res.data) {
+      activePlans.value = res.data.filter((p) => p.is_active)
+    }
+  } catch (e) {
+    console.error('Failed to fetch plans', e)
+  } finally {
+    plansLoading.value = false
+  }
+}
+
+function openCreateDialog() {
+  resetCreateForm()
+  createDialogVisible.value = true
+  if (activePlans.value.length === 0) {
+    fetchPlans()
+  }
+}
+
+async function handleCreateConfirm() {
+  if (!createForm.name.trim()) {
+    MessagePlugin.warning(t('admin.tenants.nameRequired'))
+    return
+  }
+  if (!createForm.plan_id) {
+    MessagePlugin.warning(t('admin.tenants.planRequired'))
+    return
+  }
+  try {
+    await createTenant({
+      name: createForm.name.trim(),
+      description: createForm.description.trim() || undefined,
+      business: createForm.business.trim() || undefined,
+      plan_id: createForm.plan_id,
+    })
+    MessagePlugin.success(t('admin.tenants.createSuccess'))
+    createDialogVisible.value = false
+    fetchTenants()
+  } catch (e) {
+    MessagePlugin.error(t('admin.tenants.createFailed'))
+  }
+}
+
 onMounted(() => {
   fetchTenants()
+  fetchPlans()
 })
 </script>
 
